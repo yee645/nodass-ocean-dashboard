@@ -1,0 +1,34 @@
+# 機密憑證，絕不上傳
+.nodass_token
+
+# 大型爬取／逆向分析暫存檔（非專案必要）
+gis_app.js
+gis_index.html
+app_module.js
+api.js
+portal_*.js
+apiservice.html
+nodass_api_root.html
+nodass_data_root.html
+
+# Claude Code 內部檔
+.claude/
+
+# 探測用暫存檔
+_*.json
+q_*.json
+tok_*.json
+dl_*.bin
+try*.json
+tmp.json
+m1.json
+m6.json
+s3chl.json
+goci.json
+sst.json
+meta_24.json
+datasets_normal.json
+
+# Python 快取
+__pycache__/
+*.pyc

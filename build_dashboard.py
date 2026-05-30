@@ -1,0 +1,266 @@
+"""由 NODASS 浮標近兩日資料計算極端浪況風險，產生獨立 HTML 儀表板（題目 3）。
+
+- 資料來源：NODASS 開放浮標 API（無需授權），全台 26 座浮標逐時資料。
+- 風險指標透明可解釋，不依賴開放視窗中缺漏的最大波高欄位。
+- 連續波高熱區：以 IDW 將浮標示性波高內插成海域網格，提供整片海域的直觀範圍。
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
+from dashboard_common import SHARED_CSS, build_grid, nav_html
+
+DATA_DIR = Path(r"D:\nodass")
+SRC = DATA_DIR / "buoy_window.json"
+OUT_DIR = DATA_DIR / "dashboard"
+OUT = OUT_DIR / "index.html"
+
+# 風險權重（總分 0~100）
+W_HS, W_SURGE, W_SWELL, W_GUST, W_PRES = 40.0, 25.0, 15.0, 10.0, 10.0
+HS_CAP, SURGE_CAP, PRES_DROP_CAP = 4.0, 0.5, 3.0
+
+
+def clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def coalesce_period(rec: dict) -> float | None:
+    for key in ("Wave_Peak_Period", "Wave_Period_Significant", "Wave_Mean_Period"):
+        v = rec.get(key)
+        if v is not None:
+            return v
+    return None
+
+
+def series(recs: list[dict], field: str) -> list[tuple[str, float]]:
+    out = []
+    for r in recs:
+        v = r.get(field)
+        t = r.get("DateTime") or r.get("time")
+        if v is not None and t is not None:
+            out.append((t, float(v)))
+    return out
+
+
+def compute_station(obj: dict) -> dict:
+    recs = sorted(obj["records"], key=lambda r: r.get("time") or "")
+    hs = series(recs, "Wave_Height_Significant")
+    per = []
+    for r in recs:
+        p = coalesce_period(r)
+        t = r.get("DateTime") or r.get("time")
+        if p is not None and t is not None:
+            per.append((t, float(p)))
+
+    hs_now = hs[-1][1] if hs else None
+    period_now = per[-1][1] if per else None
+
+    surge = 0.0
+    vals = [v for _, v in hs]
+    for i in range(max(1, len(vals) - 3), len(vals)):
+        surge = max(surge, vals[i] - vals[i - 1])
+
+    swell = 1.0 if (period_now is not None and period_now >= 8.0
+                    and hs_now is not None and hs_now >= 1.5) else 0.0
+
+    gust_factor = 0.0
+    gusts = series(recs, "Wind_Gust_Speed")
+    winds = series(recs, "Wind_Speed")
+    if gusts and winds and winds[-1][1] > 0.5:
+        gust_factor = gusts[-1][1] / winds[-1][1]
+
+    pres = [v for _, v in series(recs, "Air_Pressure")]
+    pres_drop = pres[-4] - pres[-1] if len(pres) >= 4 else 0.0
+
+    risk = 0.0
+    if hs_now is not None:
+        risk += W_HS * clamp01(hs_now / HS_CAP)
+    risk += W_SURGE * clamp01(surge / SURGE_CAP)
+    risk += W_SWELL * swell
+    risk += W_GUST * clamp01((gust_factor - 1.0) / 0.5) if gust_factor else 0.0
+    risk += W_PRES * clamp01(pres_drop / PRES_DROP_CAP)
+    risk = round(min(100.0, risk), 1)
+
+    if risk >= 75:
+        level, color = "危險", "#d7263d"
+    elif risk >= 50:
+        level, color = "警戒", "#f46036"
+    elif risk >= 25:
+        level, color = "注意", "#f0a202"
+    else:
+        level, color = "低", "#2e933c"
+
+    return {
+        "meta": obj["meta"], "hs_now": hs_now, "period_now": period_now,
+        "surge": round(surge, 2), "swell": swell,
+        "gust_factor": round(gust_factor, 2) if gust_factor else None,
+        "pres_drop": round(pres_drop, 2), "risk": risk, "level": level, "color": color,
+        "hs_series": [{"t": t, "v": v} for t, v in hs],
+        "period_series": [{"t": t, "v": v} for t, v in per],
+    }
+
+
+def build() -> None:
+    raw = json.loads(SRC.read_text(encoding="utf-8"))
+    stations = [compute_station(o) for o in raw.values()]
+    stations = [s for s in stations if s["hs_now"] is not None]
+    stations.sort(key=lambda s: s["risk"], reverse=True)
+
+    grid = build_grid([(s["meta"]["lat"], s["meta"]["lon"], s["hs_now"])
+                       for s in stations])
+    generated = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    OUT_DIR.mkdir(exist_ok=True)
+    html = (TPL.replace("__CSS__", SHARED_CSS)
+               .replace("__NAV__", nav_html("wave"))
+               .replace("__DATA__", json.dumps(stations, ensure_ascii=False))
+               .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
+               .replace("__TS__", generated))
+    OUT.write_text(html, encoding="utf-8")
+    top = stations[0]
+    print(f"已產生 {OUT}  站數={len(stations)}  網格={len(grid)}")
+    print(f"風險最高：{top['meta']['StationNameLocal']} risk={top['risk']} "
+          f"({top['level']}) Hs={top['hs_now']}m")
+
+
+TPL = r"""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NODASS 全台浮標極端浪況即時預警</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>__CSS__</style>
+</head>
+<body>
+<header>
+  <h1>NODASS 全台浮標極端浪況即時預警儀表板</h1>
+  <div class="sub">資料來源：國家海洋資料庫及共享平臺（NODASS）開放浮標 API ｜ 逐時資料近兩日 ｜ 產生時間 __TS__</div>
+</header>
+__NAV__
+<div class="ctrl">
+  <label><input type="checkbox" id="gridToggle" checked />顯示連續波高熱區（IDW 內插）</label>
+  <span class="note" id="gridLegend"></span>
+</div>
+<div class="wrap">
+  <div id="map"></div>
+  <div class="side">
+    <div class="panel">
+      <div class="kpi" id="kpi"></div>
+      <div class="legend" style="margin-top:8px;">風險等級：
+        <span style="background:#2e933c"></span>低<span style="background:#f0a202"></span>注意
+        <span style="background:#f46036"></span>警戒<span style="background:#d7263d"></span>危險</div>
+    </div>
+    <div class="panel">
+      <h3 style="margin:4px 0 8px;">風險排序（點擊查看時序）</h3>
+      <div style="max-height:200px;overflow:auto;">
+        <table id="tbl"><thead><tr>
+          <th>站名</th><th>單位</th><th>Hs(m)</th><th>週期(s)</th><th>暴增</th><th>風險</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="panel">
+      <h3 id="chartTitle" style="margin:4px 0 8px;">波高時序</h3>
+      <div class="chartbox"><canvas id="chart"></canvas></div>
+    </div>
+  </div>
+</div>
+<div class="wrap"><div class="panel" style="flex:1;"><div class="note">
+  <b>風險指標（透明可解釋，0–100）</b>：示性波高 40% ＋ 波高暴增率 25%（瘋狗浪前兆）＋ 長週期湧浪旗標 15% ＋ 陣風因子 10% ＋ 3 小時氣壓驟降 10%。<br/>
+  <b>連續波高熱區</b>：以反距離加權將 26 浮標示性波高內插成海域網格，僅顯示浮標 120km 內、非陸地之網格。<br/>
+  <b>升級路徑</b>：取得 NODASS 管制資料權限後可串接歷史資料訓練 LSTM 做 1–2 小時前異常巨浪機率預測。對齊 SDG 3、14。
+</div></div></div>
+<script>
+const DATA = __DATA__;
+const GRID = __GRID__;
+const GRID_STEP = 0.1;
+
+const map = L.map('map').setView([23.7, 121.0], 7);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+
+// 波高連續色階（0→4m：綠→黃→紅）
+function hsColor(v){const x=Math.max(0,Math.min(4,v))/4;
+  const r=Math.round(46+x*(215-46)),g=Math.round(147-x*(147-38)),b=Math.round(108-x*(108-61));
+  return `rgb(${r},${g},${b})`;}
+const gridLayer = L.layerGroup().addTo(map);
+function drawGrid(){gridLayer.clearLayers();
+  if(!document.getElementById('gridToggle').checked)return;
+  GRID.forEach(c=>{L.rectangle([[c.lat-GRID_STEP/2,c.lon-GRID_STEP/2],[c.lat+GRID_STEP/2,c.lon+GRID_STEP/2]],
+    {stroke:false,fillColor:hsColor(c.v),fillOpacity:0.45}).addTo(gridLayer);});}
+document.getElementById('gridToggle').onchange=drawGrid;
+document.getElementById('gridLegend').innerHTML=
+  '波高(m)：<span style="display:inline-block;width:90px;height:10px;vertical-align:middle;'+
+  'background:linear-gradient(90deg,rgb(46,147,108),rgb(215,38,61));border-radius:3px;"></span> 0 → 4+';
+drawGrid();
+
+const markers = {};
+DATA.forEach(s => {
+  const m = L.circleMarker([s.meta.lat, s.meta.lon], {
+    radius: 6 + s.risk / 10, color: '#fff', weight: 1.2, fillColor: s.color, fillOpacity: 0.95
+  }).addTo(map);
+  m.bindTooltip(`${s.meta.StationNameLocal}<br/>Hs=${s.hs_now}m 風險=${s.risk}(${s.level})`);
+  m.on('click', () => showChart(s));
+  markers[s.meta.StationID] = m;
+});
+
+const danger = DATA.filter(s => s.risk >= 50).length;
+const maxHs = Math.max(...DATA.map(s => s.hs_now));
+document.getElementById('kpi').innerHTML = `
+  <div>監測浮標<b>${DATA.length}</b></div>
+  <div>警戒以上<b style="color:#f46036">${danger}</b></div>
+  <div>最大Hs(m)<b>${maxHs.toFixed(1)}</b></div>
+  <div>最高風險<b style="color:${DATA[0].color}">${DATA[0].risk}</b></div>`;
+
+const tb = document.querySelector('#tbl tbody');
+DATA.forEach(s => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${s.meta.StationNameLocal}</td><td>${s.meta.Charge}</td>
+    <td>${s.hs_now}</td><td>${s.period_now ?? '-'}</td><td>${s.surge}</td>
+    <td><span class="badge" style="background:${s.color}">${s.risk} ${s.level}</span></td>`;
+  tr.onclick = () => { showChart(s); map.setView([s.meta.lat, s.meta.lon], 9); };
+  tb.appendChild(tr);
+});
+
+let chart;
+function showChart(s) {
+  document.getElementById('chartTitle').textContent =
+    `${s.meta.StationNameLocal} — Wave Height & Period (last 2 days)`;
+  const labels = s.hs_series.map(p => p.t.slice(5, 16).replace('T', ' '));
+  const hs = s.hs_series.map(p => p.v);
+  const perMap = {}; s.period_series.forEach(p => perMap[p.t] = p.v);
+  const per = s.hs_series.map(p => perMap[p.t] ?? null);
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Significant Wave Height (m)', data: hs, borderColor: '#4fc3f7',
+        backgroundColor: 'rgba(79,195,247,.15)', fill: true, tension: .3, yAxisID: 'y',
+        pointRadius: 3.5, pointHoverRadius: 6, pointBackgroundColor: '#4fc3f7', borderWidth: 2 },
+      { label: 'Wave Period (s)', data: per, borderColor: '#ffb74d', tension: .3, yAxisID: 'y1',
+        spanGaps: true, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#ffb74d', borderWidth: 2 }
+    ]},
+    options: { responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: '#cdd9e5' } } },
+      scales: {
+        x: { ticks: { color: '#8aa0b8', maxTicksLimit: 8 }, grid: { color: '#1c2c46' } },
+        y: { position: 'left', title: { display: true, text: 'Hs (m)', color: '#4fc3f7' },
+             ticks: { color: '#8aa0b8' }, grid: { color: '#1c2c46' } },
+        y1: { position: 'right', title: { display: true, text: 'Period (s)', color: '#ffb74d' },
+              ticks: { color: '#8aa0b8' }, grid: { display: false } }
+      } }
+  });
+}
+showChart(DATA[0]);
+</script>
+</body>
+</html>
+"""
+
+if __name__ == "__main__":
+    build()
