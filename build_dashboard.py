@@ -10,7 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from dashboard_common import SHARED_CSS, build_grid, nav_html
+from dashboard_common import SHARED_CSS, build_grid, load_coast, nav_html
 
 DATA_DIR = Path(r"D:\nodass")
 SRC = DATA_DIR / "buoy_window.json"
@@ -117,6 +117,7 @@ def build() -> None:
                .replace("__NAV__", nav_html("wave"))
                .replace("__DATA__", json.dumps(stations, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
+               .replace("__COAST__", load_coast())
                .replace("__TS__", generated))
     OUT.write_text(html, encoding="utf-8")
     top = stations[0]
@@ -159,7 +160,7 @@ __NAV__
       <h3 style="margin:4px 0 8px;">風險排序（點擊查看時序）</h3>
       <div style="max-height:200px;overflow:auto;">
         <table id="tbl"><thead><tr>
-          <th>站名</th><th>單位</th><th>Hs(m)</th><th>週期(s)</th><th>暴增</th><th>風險</th>
+          <th>站名</th><th>緯度,經度</th><th>Hs(m)</th><th>週期(s)</th><th>暴增</th><th>風險</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
@@ -177,11 +178,14 @@ __NAV__
 <script>
 const DATA = __DATA__;
 const GRID = __GRID__;
+const COAST = __COAST__;
 const GRID_STEP = 0.1;
 
 const map = L.map('map').setView([23.7, 121.0], 7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+// 內嵌海岸線：無底圖（如 file://）時仍顯示陸地與地理範圍
+L.geoJSON(COAST, { style: { fillColor: '#1b2a3a', fillOpacity: 1, color: '#46627f', weight: 1 } }).addTo(map);
 
 // 波高連續色階（0→4m：綠→黃→紅）
 function hsColor(v){const x=Math.max(0,Math.min(4,v))/4;
@@ -203,7 +207,7 @@ DATA.forEach(s => {
   const m = L.circleMarker([s.meta.lat, s.meta.lon], {
     radius: 6 + s.risk / 10, color: '#fff', weight: 1.2, fillColor: s.color, fillOpacity: 0.95
   }).addTo(map);
-  m.bindTooltip(`${s.meta.StationNameLocal}<br/>Hs=${s.hs_now}m 風險=${s.risk}(${s.level})`);
+  m.bindTooltip(`${s.meta.StationNameLocal}<br/>座標 ${s.meta.lat.toFixed(3)}, ${s.meta.lon.toFixed(3)}<br/>Hs=${s.hs_now}m 風險=${s.risk}(${s.level})`);
   m.on('click', () => showChart(s));
   markers[s.meta.StationID] = m;
 });
@@ -219,7 +223,7 @@ document.getElementById('kpi').innerHTML = `
 const tb = document.querySelector('#tbl tbody');
 DATA.forEach(s => {
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${s.meta.StationNameLocal}</td><td>${s.meta.Charge}</td>
+  tr.innerHTML = `<td>${s.meta.StationNameLocal}</td><td>${s.meta.lat.toFixed(2)},${s.meta.lon.toFixed(2)}</td>
     <td>${s.hs_now}</td><td>${s.period_now ?? '-'}</td><td>${s.surge}</td>
     <td><span class="badge" style="background:${s.color}">${s.risk} ${s.level}</span></td>`;
   tr.onclick = () => { showChart(s); map.setView([s.meta.lat, s.meta.lon], 9); };

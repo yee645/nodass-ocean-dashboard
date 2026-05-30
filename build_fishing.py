@@ -15,7 +15,8 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from dashboard_common import SHARED_CSS, TAIWAN_POLY, haversine, in_polygon, nav_html
+from dashboard_common import (SHARED_CSS, TAIWAN_POLY, haversine, in_polygon,
+                              load_coast, nav_html)
 from species_traits import SPECIES, suitability
 
 DATA_DIR = Path(r"D:\nodass")
@@ -167,6 +168,7 @@ def build() -> None:
                .replace("__DATA__", json.dumps(sst_st, ensure_ascii=False))
                .replace("__SPECIES__", json.dumps(SPECIES, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
+               .replace("__COAST__", load_coast())
                .replace("__MONTH__", str(month))
                .replace("__STEP__", str(GRID_STEP))
                .replace("__REFRESH__", str(REFRESH_SEC))
@@ -238,6 +240,7 @@ __NAV__
 const DATA = __DATA__;
 const SPECIES = __SPECIES__;
 const GRID = __GRID__;
+const COAST = __COAST__;
 const MONTH = __MONTH__;
 const STEP = __STEP__;
 const OVERALL = '__OVERALL__';
@@ -255,6 +258,8 @@ function valFor(s,mode){return mode===OVERALL?s.fish_score:(s.species[mode]??0);
 const map = L.map('map').setView([23.7,121.0],7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   {subdomains:'abcd',maxZoom:18,attribution:'© OpenStreetMap © CARTO'}).addTo(map);
+// 內嵌海岸線：無底圖（如 file://）時仍顯示陸地與地理範圍
+L.geoJSON(COAST,{style:{fillColor:'#1b2a3a',fillOpacity:1,color:'#46627f',weight:1}}).addTo(map);
 const gridRenderer = L.canvas({padding:0.5});  // 網格矩形用 canvas 算繪，效能佳且不影響底圖
 const gridLayer = L.layerGroup().addTo(map);
 const moveLayer = L.layerGroup().addTo(map);
@@ -287,7 +292,7 @@ function drawMovement(sp){
   hot.sort((a,b)=>b.v-a.v);
   hot.slice(0,30).forEach(({c,v})=>{
     L.marker([c.lat,c.lon],{icon:L.divIcon({className:'',html:'<div class="arrow">★</div>',iconSize:[16,16]})})
-      .bindTooltip(`魚群熱點 ${sp.name}<br/>適合度=${v} SST=${c.v}°C`).addTo(moveLayer);
+      .bindTooltip(`魚群熱點 ${sp.name}<br/>座標 ${c.lat.toFixed(3)}, ${c.lon.toFixed(3)}<br/>適合度=${v} SST=${c.v}°C`).addTo(moveLayer);
     if(c.u!==undefined){
       const sc=0.6; // 流速→經緯度長度縮放
       const lat2=c.lat + c.w*sc, lon2=c.lon + c.u*sc;
@@ -305,7 +310,7 @@ function render(mode){
   const rows=DATA.map(s=>({s,v:valFor(s,mode)})).sort((a,b)=>b.v-a.v);
   rows.forEach(({s,v})=>{const m=L.circleMarker([s.lat,s.lon],
     {radius:5+v/12,color:'#fff',weight:1.2,fillColor:colorFor(v),fillOpacity:0.95}).addTo(map);
-    m.bindTooltip(`${s.name}<br/>SST=${s.sst}°C 流速=${s.current??'-'}<br/>${mode===OVERALL?'漁場指標':mode}=${v}`);
+    m.bindTooltip(`${s.name}<br/>座標 ${s.lat.toFixed(3)}, ${s.lon.toFixed(3)}<br/>SST=${s.sst}°C 流速=${s.current??'-'}<br/>${mode===OVERALL?'漁場指標':mode}=${v}`);
     m.on('click',()=>showChart(s)); markers.push(m);});
 
   const vals=rows.map(r=>r.v), hi=vals.filter(v=>v>=60).length;
@@ -347,13 +352,14 @@ function render(mode){
 
   const isSp=mode!==OVERALL;
   document.querySelector('#tbl thead').innerHTML=isSp
-    ?'<tr><th>站名</th><th>SST(°C)</th><th>適合度</th></tr>'
-    :'<tr><th>站名</th><th>SST(°C)</th><th>鋒面</th><th>流速</th><th>指標</th></tr>';
+    ?'<tr><th>站名</th><th>緯度,經度</th><th>SST(°C)</th><th>適合度</th></tr>'
+    :'<tr><th>站名</th><th>緯度,經度</th><th>SST(°C)</th><th>鋒面</th><th>流速</th><th>指標</th></tr>';
   const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
   rows.forEach(({s,v})=>{const tr=document.createElement('tr');
+    const xy=`${s.lat.toFixed(2)},${s.lon.toFixed(2)}`;
     tr.innerHTML=isSp
-      ?`<td>${s.name}</td><td>${s.sst}</td><td><span class="badge" style="background:${colorFor(v)}">${v}</span></td>`
-      :`<td>${s.name}</td><td>${s.sst}</td><td>${s.front}</td><td>${s.current??'-'}</td><td><span class="badge" style="background:${colorFor(v)}">${v} ${s.level}</span></td>`;
+      ?`<td>${s.name}</td><td>${xy}</td><td>${s.sst}</td><td><span class="badge" style="background:${colorFor(v)}">${v}</span></td>`
+      :`<td>${s.name}</td><td>${xy}</td><td>${s.sst}</td><td>${s.front}</td><td>${s.current??'-'}</td><td><span class="badge" style="background:${colorFor(v)}">${v} ${s.level}</span></td>`;
     tr.onclick=()=>{showChart(s);map.setView([s.lat,s.lon],9);}; tb.appendChild(tr);});
   document.getElementById('tblTitle').textContent=(isSp?`${mode} 適合度排序`:'潛在漁場排序')+'（點擊看海溫時序）';
 }

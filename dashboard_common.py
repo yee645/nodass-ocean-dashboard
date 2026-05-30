@@ -5,6 +5,17 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
+
+_COAST_FILE = Path(__file__).with_name("taiwan_coast.json")
+
+
+def load_coast() -> str:
+    """回傳台灣海岸線 GeoJSON 字串（供前端內嵌，無底圖時自繪陸地）。"""
+    try:
+        return _COAST_FILE.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return '{"type":"FeatureCollection","features":[]}'
 
 # 台灣本島粗略外框（lon, lat），用於排除陸地網格
 TAIWAN_POLY = [
@@ -102,6 +113,7 @@ SHARED_CSS = """
   h3{font-size:clamp(0.9rem,1.4vw,1rem);}
   .chartbox{position:relative;height:200px;width:100%;}
   canvas{background:#0e1726;border-radius:6px;}
+  .leaflet-container{background:#0a1a2e;}
   @media (max-width:760px){ .side{flex:1 1 100%;} #map{flex:1 1 100%;} }
 """
 
