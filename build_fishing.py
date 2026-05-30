@@ -1,7 +1,7 @@
 """題目 0：NODASS 開放浮標 → 漁場環境 + 經濟魚種棲地預測（連續、即時、含移動）。
 
 精確範圍：以 0.05° 細網格 IDW 內插 SST，逐網格算魚種棲地適合度（canvas 算繪）。
-即時更新：頁面定時自動重整；搭配 live_update.py 重抓最新浮標資料重建。
+即時更新：執行 live_update.py（可搭排程）重抓最新浮標資料重建，使用者重整頁面即見最新。
 魚群位置與移動：
   - 魚群熱點 = 適合度高的網格（局部極大）。
   - 漂移方向 = 浮標實測表層海流向量內插（魚群隨流移動）。
@@ -25,7 +25,6 @@ OUT = DATA_DIR / "dashboard" / "fishing.html"
 
 GRID_STEP = 0.05      # 細網格解析度（度）
 RADIUS_KM = 120.0     # 內插半徑（超出不外推）
-REFRESH_SEC = 600     # 頁面自動重整秒數
 
 
 def latest(recs: list[dict], field: str) -> float | None:
@@ -171,7 +170,6 @@ def build() -> None:
                .replace("__COAST__", load_coast())
                .replace("__MONTH__", str(month))
                .replace("__STEP__", str(GRID_STEP))
-               .replace("__REFRESH__", str(REFRESH_SEC))
                .replace("__TS__", generated))
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
@@ -185,7 +183,6 @@ TPL = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta http-equiv="refresh" content="__REFRESH__" />
 <title>NODASS 漁場環境與經濟魚種棲地預測</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -197,7 +194,7 @@ TPL = r"""<!DOCTYPE html>
 <body>
 <header>
   <h1>NODASS 漁場環境與經濟魚種棲地預測儀表板</h1>
-  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 __TS__（第 __MONTH__ 月，每 __REFRESH__ 秒自動重整）</div>
+  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 __TS__（第 __MONTH__ 月）</div>
 </header>
 __NAV__
 <div class="ctrl">
@@ -234,7 +231,7 @@ __NAV__
   <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格。<br/>
   <b>魚群熱點</b>：適合度局部極大之網格（★）。<b>漂移方向</b>（箭頭）：浮標實測表層海流向量內插，代表魚群可能隨流移動方向；箭頭越長流速越大。<br/>
   <b>棲地趨勢</b>：近 6 小時 SST 變化；升溫使暖水魚種適宜帶向北/外擴、冷水魚種收縮，反之亦然。<br/>
-  <b>即時</b>：頁面每 __REFRESH__ 秒自動重整；執行 live_update.py 可重抓最新浮標資料並重建。完整葉綠素/歷史需會員權限。對齊 SDG 14。
+  <b>即時</b>：執行 live_update.py（可搭排程）重抓最新浮標資料並重建，重整頁面即見最新。完整葉綠素/歷史需會員權限。對齊 SDG 14。
 </div></div></div>
 <script>
 const DATA = __DATA__;
