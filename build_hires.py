@@ -146,10 +146,10 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
     for sp, cells in sorted(occ.items(), key=lambda kv: len(kv[1]), reverse=True):
         pc = np.array(sorted(cells))
         if len(pc) < MIN_PRESENCE_SDM:
-            report.append((sp, len(pc), "skip-不足"))
+            report.append((sp, len(pc), "skip-不足", ""))
             continue
         P = Zs[pc[:, 0], pc[:, 1]]
-        # 交叉驗證：70/30 重複 5 次取平均測試 AUC
+        # (1) 隨機 70/30 重複 5 次交叉驗證(偏樂觀，受空間自相關影響)
         aucs = []
         for k in range(5):
             idx = rng.permutation(len(P)); cut = int(len(P) * 0.7)
@@ -159,6 +159,22 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
             mu, ci = envelope(tr)
             aucs.append(auc(score(te, mu, ci), score(bgX, mu, ci)))
         cv = round(float(np.mean(aucs)), 3) if aucs else float("nan")
+
+        # (2) 空間分塊交叉驗證(leave-one-block-out, 0.6°方塊)：誠實值，降低空間自相關高估
+        BS = 0.6
+        blk = defaultdict(list)
+        for r, (iy, ix) in enumerate(pc):
+            blk[(int(lats[iy] // BS), int(lons[ix] // BS))].append(r)
+        saucs = []
+        if len(blk) >= 3:
+            for hk, te_idx in blk.items():
+                tr_idx = [r for r in range(len(pc)) if r not in set(te_idx)]
+                if len(te_idx) < 3 or len(tr_idx) < 10:
+                    continue
+                mu, ci = envelope(P[tr_idx])
+                saucs.append(auc(score(P[te_idx], mu, ci), score(bgX, mu, ci)))
+        scv = round(float(np.mean(saucs)), 3) if saucs else float("nan")
+
         mu, ci = envelope(P)                       # 全資料擬合輸出網格
         s2d = np.full((Ny, Nx), np.nan, dtype=np.float32)
         vy, vx = np.where(valid)
@@ -166,14 +182,15 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
         sc = sc / sc.max() * 100.0
         s2d[vy, vx] = sc
         results[sp] = s2d
-        report.append((sp, len(pc), cv))
-        print(f"  SDM species#{len(results)}: presence={len(pc)} CV-AUC={cv}")
+        report.append((sp, len(pc), cv, scv))
+        print(f"  SDM species#{len(results)}: presence={len(pc)} randomCV={cv} spatialCV={scv}")
 
     with open(SDM_REPORT, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["魚種", "區內季節出現點", "交叉驗證AUC/狀態"])
+        w.writerow(["魚種", "區內出現點", "隨機CV-AUC", "空間分塊CV-AUC"])
         w.writerows(report)
-    return results, [(sp, n, a) for sp, n, a in report if not isinstance(a, str)]
+    return results, [(sp, n, cv, scv) for sp, n, cv, scv in report
+                     if not isinstance(cv, str)]
 
 
 def main():
@@ -219,7 +236,7 @@ def main():
 
     layers = {"sst": col(sst, 2), "chl": col(chl, 3), "front": col(front, 3)}
     thermal_sp = [nm for nm in SHOW_SPECIES if nm in suit]
-    sdm_sp = [sp for sp, n, a in sdm_rep]
+    sdm_sp = [sp for sp, n, cv, scv in sdm_rep]
     for nm in thermal_sp:
         layers["T:" + nm] = icol(suit[nm])
     for nm in sdm_sp:
@@ -227,7 +244,10 @@ def main():
 
     meta = {"bbox": TARGET, "step": STEP, "window": [DATE1, DATE2],
             "thermal": thermal_sp,
-            "sdm": [{"name": sp, "n": n, "auc": a} for sp, n, a in sdm_rep],
+            "sdm": [{"name": sp, "n": n,
+                     "auc": (None if scv != scv else scv),      # 空間CV(誠實值)
+                     "rauc": (None if cv != cv else cv)}        # 隨機CV(參考)
+                    for sp, n, cv, scv in sdm_rep],
             "n_sst_valid": int(len(lat)),
             "source": "NODASS 開放衛星影像 (Sentinel-3 SST, GOCI 葉綠素)"}
     payload = {"meta": meta, "lat": lat, "lon": lon, "layers": layers}
@@ -285,8 +305,9 @@ __NAV__
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
   <b>方法</b>：以圖例色帶將開放衛星影像數位化為數值，套陸地遮罩與合理值域，跨多場景平均以填補掃描帶/雲縫。
   <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>適溫代理</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
-  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館)與高解析環境(SST、log葉綠素、鋒面)配對，
-  擬合 presence-only 高斯包絡模型，以 70/30 重複交叉驗證 AUC(圖層名後括號)。<br/>
+  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館/GBIF)與高解析環境(SST、log葉綠素、鋒面)配對，
+  擬合 presence-only 高斯包絡模型。<b>準確度以空間分塊交叉驗證(leave-one-block-out, 0.6°)</b>呈現於魚種標籤，
+  此值已抑制空間自相關高估，較隨機 70/30 CV 誠實(兩者皆記於 sdm/hires_sdm_report.csv)。<br/>
   <b>意義</b>：解析度 ~4km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。<br/>
   <b>限制</b>：衛星合成為早春代表場，出現點橫跨年代/季節(季節一致性為已知限制)；presence-only、無漁獲量。
   漁獲量/CPUE 標籤到位後可校正為真正的魚群量預測。對齊 SDG 14。
@@ -316,7 +337,7 @@ const BASE=[['sst','海溫 SST (°C)',18,28,'lin'],['chl','葉綠素 (mg/m³)',-
 // 魚種圖層鍵：適溫代理 T:、資料驅動 SDM S:
 const SP=[];
 meta.thermal.forEach(nm=>SP.push(['T:'+nm,nm+'(適溫)']));
-(meta.sdm||[]).forEach(x=>SP.push(['S:'+x.name,`${x.name}(SDM AUC ${x.auc})`]));
+(meta.sdm||[]).forEach(x=>SP.push(['S:'+x.name,`${x.name}(SDM 空間AUC ${x.auc==null?'—':x.auc})`]));
 
 let baseKey='sst'; const checked=new Set((meta.sdm||[]).slice(0,1).map(x=>'S:'+x.name));
 
