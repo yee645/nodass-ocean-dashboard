@@ -1,9 +1,12 @@
-"""未來 5 天高解析漁場棲地預報：用氣象署 OCM 海流模式(公開、免授權)的
-數值預報場(SST、海流)，套魚種適溫模型，輸出今日與未來數日的高解析棲地適合度。
+"""未來數日高解析漁場棲地預報。
 
-資料來源：中央氣象署 OCM 海流模式 OPeNDAP(oceanapi.cwa.gov.tw)。0.025° 數值場、120 小時逐時預報。
-本頁取小區、選定預報時段(今日/+1/+2/+3 天)，與機制式適溫×季節結合，輸出棲地與海流漂移。
+環境來源：
+  - 中央氣象署 OCM 海流模式 OPeNDAP(公開)：未來 SST、海流(UCURR/VCURR)，0.025° 數值預報。
+  - NODASS 開放 GOCI 葉綠素：取當月多年氣候平均，作為餌料(生產力)因子。
+棲地適合度 = 魚種適溫隸屬 × 季節因子 × 葉綠素餌料因子(0–100)。
+輸出今日/+1/+2/+3 天高解析棲地 + 海流向量。介面：分段按鈕 + 魚種勾選晶片(複選顯示最適魚種)。
 輸出：sdm/forecast_grid.json、dashboard/forecast.html。
+資料來源須註明：中央氣象署 OCM 海流模式、NODASS/GOCI 葉綠素。
 """
 from __future__ import annotations
 
@@ -14,6 +17,8 @@ from pathlib import Path
 import numpy as np
 
 import fetch_ocm_forecast as OCM
+import fetch_satellite as FS
+import sat_digitize as SD
 from dashboard_common import SHARED_CSS, load_coast, nav_html
 from species_traits import SPECIES
 
@@ -21,25 +26,25 @@ BASE = Path(__file__).resolve().parent
 OUT_JSON = BASE / "sdm" / "forecast_grid.json"
 OUT_HTML = BASE / "dashboard" / "forecast.html"
 
-TARGET = (119.0, 123.2, 21.7, 26.2)      # 環島(含西部/西南/南部沿海；OCM 全台覆蓋)
+TARGET = (119.0, 123.2, 21.7, 26.2)      # 環島(含西部/西南/南部沿海)
 STRIDE = 2                                # OCM 0.025° × 2 = 0.05°(~5km)
-LEAD_DAYS = [0, 1, 2, 3]                  # 今日、+1、+2、+3 天(受預報長度與起報日限制)
-SHOW_SPECIES = ["鬼頭刀", "鎖管(透抽)", "白帶魚", "白腹鯖(花飛)"]
+LEAD_DAYS = [0, 1, 2, 3]
+SHOW_SPECIES = ["鬼頭刀", "鎖管(透抽)", "白帶魚", "白腹鯖(花飛)", "正鰹", "飛魚"]
+CHL_YEARS = [2020, 2019]                  # GOCI 葉綠素氣候平均取用年份(archive 約止於 2020)
+MAX_CHL_SCENES = 24
 
 
-def thermal_suit(sst, sp, month):
+def thermal(sst, sp):
     a, b, c, d = sp["sst_min"], sp["opt_lo"], sp["opt_hi"], sp["sst_max"]
     t = np.zeros_like(sst)
     t = np.where((sst >= b) & (sst <= c), 1.0, t)
     t = np.where((sst > a) & (sst < b), (sst - a) / (b - a), t)
     t = np.where((sst > c) & (sst < d), (d - sst) / (d - c), t)
     t = np.where((sst <= a) | (sst >= d), 0.0, t)
-    season = 1.0 if month in sp["season"] else 0.55
-    return 100.0 * t * season
+    return t
 
 
 def pick_leads(valids):
-    """依目標天數選最接近的預報時間索引(今日 00:00 起算)。"""
     base = dt.datetime.combine(dt.date.today(), dt.time(0))
     chosen = []
     for dday in LEAD_DAYS:
@@ -48,6 +53,38 @@ def pick_leads(valids):
         if i not in [c[0] for c in chosen]:
             chosen.append((i, dday, valids[i]))
     return chosen
+
+
+def chl_climatology(lat_ref, lon_ref, month):
+    """當月 GOCI 葉綠素多年氣候平均(內插到 OCM 網格)。回傳 2D 與 log 正規化餌料因子。"""
+    spec = SD.LEGEND_SPEC["GOCI_CHL"]
+    lut, stack = None, []
+    for yr in CHL_YEARS:
+        d1 = f"{yr}-{month:02d}-01"
+        d2 = f"{yr}-{month:02d}-28"
+        try:
+            scenes = [r for r in FS.list_scenes("GOCI_CHL", d1, d2) if FS.covers(r, TARGET)]
+        except Exception:
+            scenes = []
+        for rec in scenes[:MAX_CHL_SCENES // len(CHL_YEARS)]:
+            try:
+                img = FS.download(rec["AccessImageURL"])
+                if lut is None:
+                    leg = FS.download(rec["AccessLegendURL"])
+                    lut = SD.legend_lut(str(leg), spec["vmin"], spec["vmax"], spec["scale"])
+                g = SD.sample_grid(str(img), FS.bbox_of(rec), lut[0], lut[1], lat_ref, lon_ref)
+                g[(g < 0.02) | (g > 35)] = np.nan
+                stack.append(g)
+            except Exception:
+                pass
+    if not stack:
+        chl = np.full((len(lat_ref), len(lon_ref)), np.nan, dtype=np.float32)
+    else:
+        chl = np.nanmean(np.stack(stack), axis=0)
+    chl_norm = np.clip((np.log10(np.where(chl > 0, chl, np.nan)) - np.log10(0.05)) /
+                       (np.log10(2.0) - np.log10(0.05)), 0, 1)
+    print(f"  GOCI 葉綠素氣候平均：場景 {len(stack)}  有效格 {int(np.isfinite(chl).sum())}")
+    return chl, chl_norm
 
 
 def main():
@@ -63,56 +100,54 @@ def main():
           f"leads={[(d, v.strftime('%m-%d')) for _, d, v in leads]}")
 
     by_name = {sp["name"]: sp for sp in SPECIES}
-    grids = {}
+    show = [nm for nm in SHOW_SPECIES if nm in by_name]
+    lead_env = {}
     lat_ref = lon_ref = mask = None
     for ti, dday, v in leads:
         lats, lons, sst = OCM.subset(init, "SST", ti, TARGET, STRIDE)
         _, _, u = OCM.subset(init, "UCURR", ti, TARGET, STRIDE)
         _, _, w = OCM.subset(init, "VCURR", ti, TARGET, STRIDE)
         if lat_ref is None:
-            lat_ref, lon_ref = lats, lons
-            mask = np.isfinite(sst)
-        cspd = np.hypot(u, w)
-        layer = {"sst": sst, "u": u, "w": w, "cspd": cspd}
-        for nm in SHOW_SPECIES:
-            sp = by_name.get(nm)
-            if sp:
-                layer["S:" + nm] = thermal_suit(sst, sp, month)
-        grids[dday] = layer
-        print(f"  +{dday}d {v:%m-%d %H:%M}: SST {np.nanmin(sst):.1f}-{np.nanmax(sst):.1f}  "
-              f"流速max {np.nanmax(cspd):.2f} m/s")
+            lat_ref, lon_ref, mask = lats, lons, np.isfinite(sst)
+        lead_env[dday] = {"sst": sst, "u": u, "w": w, "cspd": np.hypot(u, w)}
+        print(f"  +{dday}d {v:%m-%d %H:%M}: SST {np.nanmin(sst):.1f}-{np.nanmax(sst):.1f}")
 
-    # 以第一個預報的有效(海域)格為固定網格
+    chl, chl_norm = chl_climatology(lat_ref, lon_ref, month)
+    prod = 0.6 + 0.4 * np.nan_to_num(chl_norm, nan=0.0)     # 餌料因子(無葉綠素時保守 0.6)
+
     ys, xs = np.where(mask)
     cells = [{"lat": round(float(lat_ref[y]), 3), "lon": round(float(lon_ref[x]), 3)}
              for y, x in zip(ys, xs)]
 
-    def arr(field, dday):
-        a = grids[dday][field][ys, xs]
-        return [None if not np.isfinite(v) else round(float(v), 3) for v in a]
+    def col(arr2d, nd, integer=False):
+        out = []
+        for y, x in zip(ys, xs):
+            val = arr2d[y, x]
+            out.append(None if not np.isfinite(val) else (int(round(val)) if integer else round(float(val), nd)))
+        return out
 
     data = {}
     for dday in [d for _, d, _ in leads]:
+        e = lead_env[dday]
+        sst = e["sst"]
+        season = {nm: (1.0 if month in by_name[nm]["season"] else 0.55) for nm in show}
+        suit = {nm: 100.0 * thermal(sst, by_name[nm]) * season[nm] * prod for nm in show}
         data[str(dday)] = {
-            "sst": arr("sst", dday), "u": arr("u", dday), "w": arr("w", dday),
-            "cspd": arr("cspd", dday),
-            "s": {nm: arr("S:" + nm, dday) for nm in SHOW_SPECIES if "S:" + nm in grids[dday]},
+            "sst": col(sst, 2), "u": col(e["u"], 3), "w": col(e["w"], 3),
+            "cspd": col(e["cspd"], 3),
+            "s": {nm: col(suit[nm], 0, integer=True) for nm in show},
         }
 
-    meta = {"init": init, "bbox": TARGET, "step": RES_DEG(),
-            "month": month, "species": SHOW_SPECIES,
+    meta = {"init": init, "bbox": TARGET, "step": round(OCM.RES * STRIDE, 4),
+            "month": month, "species": show,
             "leads": [{"d": d, "valid": v.strftime("%Y-%m-%d %H:%M")} for _, d, v in leads],
-            "source": "中央氣象署 OCM 海流模式 (oceanapi.cwa.gov.tw, OPeNDAP)"}
+            "source": "中央氣象署 OCM 海流模式 + NODASS/GOCI 葉綠素氣候平均"}
+    payload = {"meta": meta, "cells": cells, "chl": col(chl, 3), "data": data}
     OUT_JSON.parent.mkdir(exist_ok=True)
-    payload = {"meta": meta, "cells": cells, "data": data}
     OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
                         encoding="utf-8")
-    print(f"cells={len(cells)} leads={len(data)} -> {OUT_JSON.name}")
+    print(f"cells={len(cells)} leads={len(data)} species={len(show)} -> {OUT_JSON.name}")
     write_html(payload)
-
-
-def RES_DEG():
-    return round(OCM.RES * STRIDE, 4)
 
 
 def write_html(payload):
@@ -137,12 +172,20 @@ HTML = r"""<!DOCTYPE html>
     border-bottom:10px solid #cfe8ff;filter:drop-shadow(0 0 1px #000);}
 </style></head><body>
 <header><h1>NODASS 未來高解析漁場棲地預報（今日 + 未來數日）</h1>
-<div class="sub">資料來源：中央氣象署 OCM 海流模式（OPeNDAP 數值預報，0.05° 取樣）｜套魚種適溫模型｜產生 __TS__</div></header>
+<div class="sub">資料來源：中央氣象署 OCM 海流模式 + NODASS/GOCI 葉綠素氣候平均｜0.05° 取樣｜產生 __TS__</div></header>
 __NAV__
 <div class="ctrl">
-  <label for="lead">預報時段：</label><select id="lead"></select>
-  <label for="layer">圖層：</label><select id="layer"></select>
-  <label><input type="checkbox" id="curToggle" checked />顯示海流向量</label>
+  <strong style="color:#cdd9e5;font-size:0.85rem;">預報時段</strong><span class="seg" id="leadSeg"></span>
+</div>
+<div class="ctrl">
+  <strong style="color:#cdd9e5;font-size:0.85rem;">圖層</strong><span class="seg" id="baseSeg"></span>
+  <label><input type="checkbox" id="curToggle" checked />海流向量</label>
+</div>
+<div class="ctrl" id="spRow" style="display:none;align-items:flex-start;">
+  <strong style="color:#cdd9e5;font-size:0.85rem;padding-top:6px;">魚種<br/><span class="note">可複選</span></strong>
+  <span class="chips" id="spChips"></span>
+  <span style="display:flex;flex-direction:column;gap:4px;">
+    <button class="toolbtn" id="spAll">全選</button><button class="toolbtn" id="spNone">清除</button></span>
   <span class="note" id="hint"></span>
 </div>
 <div class="wrap">
@@ -154,15 +197,17 @@ __NAV__
   </div>
 </div>
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
-  <b>方法</b>：氣象署 OCM 海流模式提供未來 5 天、0.025° 的數值 SST 與海流場(本頁取小區、0.05° 取樣)。
-  棲地適合度=魚種適溫隸屬×季節因子(套用預報 SST)；海流向量取自預報 UCURR/VCURR，示意魚群可能漂移方向。<br/>
-  <b>意義</b>：把高解析棲地推進到「今日與未來數日」，且為政府公開數值預報、免授權。<br/>
-  <b>限制</b>：預報長度與起報日決定可及天數；為棲地(環境)預報，非漁獲量；葉綠素未納入(OCM 無)。資料來源須註明中央氣象署。對齊 SDG 14。
+  <b>方法</b>：氣象署 OCM 提供未來數日 0.025° 數值 SST 與海流(本頁 0.05° 取樣)；
+  葉綠素取 GOCI 當月多年氣候平均作餌料因子。<b>棲地適合度=適溫隸屬 × 季節 × 餌料因子</b>。
+  海流向量取自預報 UCURR/VCURR，示意魚群可能漂移方向。<br/>
+  <b>意義</b>：把高解析棲地推進到今日與未來數日，政府公開數值預報、免授權。<br/>
+  <b>限制</b>：可及天數受預報長度限制；葉綠素為氣候平均(非當日)；為棲地(環境)預報非漁獲量。
+  資料來源須註明中央氣象署 OCM 與 GOCI。對齊 SDG 14。
 </div></div></div>
 <script>
-const P=__DATA__, COAST=__COAST__, cells=P.cells, meta=P.meta, DATA=P.data;
-const STEP=meta.step;
-const map=L.map('map').setView([(meta.bbox[2]+meta.bbox[3])/2,(meta.bbox[0]+meta.bbox[1])/2],9);
+const P=__DATA__, COAST=__COAST__, cells=P.cells, meta=P.meta, DATA=P.data, CHL=P.chl;
+const STEP=meta.step, N=cells.length;
+const map=L.map('map').setView([(meta.bbox[2]+meta.bbox[3])/2,(meta.bbox[0]+meta.bbox[1])/2],8);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(map);
 map.createPane('land'); map.getPane('land').style.zIndex='450';
 L.geoJSON(COAST,{pane:'land',interactive:false,style:{fillColor:'#26344d',fillOpacity:1,color:'#6f8db3',weight:1}}).addTo(map);
@@ -172,45 +217,79 @@ const gridRenderer=L.canvas({padding:0.5}), gl=L.layerGroup().addTo(map), cl=L.l
 function jet(t){t=Math.max(0,Math.min(1,t));const r=Math.max(0,Math.min(1,1.5-Math.abs(4*t-3))),
   g=Math.max(0,Math.min(1,1.5-Math.abs(4*t-2))),b=Math.max(0,Math.min(1,1.5-Math.abs(4*t-1)));
   return `rgb(${(r*255)|0},${(g*255)|0},${(b*255)|0})`;}
+function rect(i,color){L.rectangle([[cells[i].lat-STEP/2,cells[i].lon-STEP/2],[cells[i].lat+STEP/2,cells[i].lon+STEP/2]],
+  {stroke:false,fillColor:color,fillOpacity:0.72,renderer:gridRenderer}).addTo(gl);}
+const GRAD='linear-gradient(90deg,rgb(0,0,255),rgb(0,255,255),rgb(0,255,0),rgb(255,255,0),rgb(255,0,0))';
+function setLegend(t){document.getElementById('legend').innerHTML=t+
+  `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${GRAD}"></div>低 → 高　▲海流向量`;}
+function setKpi(a){document.getElementById('kpi').innerHTML=a.map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join('');}
 
-const leadSel=document.getElementById('lead'), laySel=document.getElementById('layer');
-meta.leads.forEach(L0=>{const o=document.createElement('option');o.value=L0.d;
-  o.textContent=(L0.d===0?'今日':'+'+L0.d+'天')+'（'+L0.valid.slice(5,16)+'）';leadSel.appendChild(o);});
-const layers=[['sst','海溫 SST (°C)',[18,30]],['cspd','海流速 (m/s)',[0,1.5]]];
-meta.species.forEach(sp=>layers.push(['S:'+sp,'棲地適合度：'+sp,[0,100]]));
-layers.forEach(([k,t])=>{const o=document.createElement('option');o.value=k;o.textContent=t;laySel.appendChild(o);});
+const BASE=[['sst','海溫 SST (°C)',18,30,'lin'],['cspd','海流速 (m/s)',0,1.5,'lin'],
+  ['chl','葉綠素氣候平均 (mg/m³)',-1.3,0.5,'log'],['habitat','棲地適合度(選魚種)',0,100,'lin']];
+let baseKey='sst', leadKey=String(meta.leads[0].d);
+const checked=new Set(meta.species.slice(0,2).map(nm=>nm));
 
-function curArrows(d){cl.clearLayers(); if(!document.getElementById('curToggle').checked)return;
-  const D=DATA[d]; for(let i=0;i<cells.length;i+=7){const u=D.u[i],w=D.w[i]; if(u==null||w==null)continue;
-    const sp=Math.hypot(u,w); if(sp<0.05)continue;
-    const deg=(Math.atan2(u,w)*180/Math.PI+360)%360;
+const leadSeg=document.getElementById('leadSeg');
+meta.leads.forEach(L0=>{const b=document.createElement('button');b.dataset.k=String(L0.d);
+  b.textContent=(L0.d===0?'今日':'+'+L0.d+'天')+'('+L0.valid.slice(5,10)+')';
+  b.onclick=()=>{leadKey=String(L0.d);[...leadSeg.children].forEach(c=>c.classList.toggle('on',c.dataset.k===leadKey));draw();};
+  leadSeg.appendChild(b);}); leadSeg.firstChild.classList.add('on');
+
+const baseSeg=document.getElementById('baseSeg');
+BASE.forEach(([k,label])=>{const b=document.createElement('button');b.textContent=label;b.dataset.k=k;
+  b.onclick=()=>{baseKey=k;[...baseSeg.children].forEach(c=>c.classList.toggle('on',c.dataset.k===k));
+    document.getElementById('spRow').style.display=(k==='habitat')?'flex':'none';draw();};
+  baseSeg.appendChild(b);}); baseSeg.firstChild.classList.add('on');
+
+const chips=document.getElementById('spChips');
+meta.species.forEach(nm=>{const lab=document.createElement('label');lab.dataset.k=nm;
+  lab.innerHTML=`<input type="checkbox" ${checked.has(nm)?'checked':''}/> ${nm}`;lab.classList.toggle('on',checked.has(nm));
+  lab.querySelector('input').onchange=e=>{e.target.checked?checked.add(nm):checked.delete(nm);lab.classList.toggle('on',e.target.checked);draw();};
+  chips.appendChild(lab);});
+document.getElementById('spAll').onclick=()=>{checked.clear();meta.species.forEach(nm=>checked.add(nm));sync();draw();};
+document.getElementById('spNone').onclick=()=>{checked.clear();sync();draw();};
+function sync(){[...chips.children].forEach(l=>{const on=checked.has(l.dataset.k);l.classList.toggle('on',on);l.querySelector('input').checked=on;});}
+
+function curArrows(){cl.clearLayers(); if(!document.getElementById('curToggle').checked)return;
+  const D=DATA[leadKey]; for(let i=0;i<N;i+=7){const u=D.u[i],w=D.w[i]; if(u==null||w==null)continue;
+    if(Math.hypot(u,w)<0.05)continue; const deg=(Math.atan2(u,w)*180/Math.PI+360)%360;
     L.marker([cells[i].lat,cells[i].lon],{pane:'top',icon:L.divIcon({className:'',
       html:`<div class="cur" style="transform:rotate(${deg}deg)"></div>`,iconSize:[8,10],iconAnchor:[4,5]})}).addTo(cl);}}
 
-function draw(){const d=leadSel.value, layer=laySel.value, D=DATA[d], vals=layer.startsWith('S:')?D.s[layer.slice(2)]:D[layer];
-  const meta3=layers.find(l=>l[0]===layer); const[lo,hi]=meta3[2];
-  gl.clearLayers(); let n=0,sum=0,mx=-1e9;
-  cells.forEach((c,i)=>{const v=vals[i]; if(v==null)return;
-    const t=(v-lo)/(hi-lo);
-    L.rectangle([[c.lat-STEP/2,c.lon-STEP/2],[c.lat+STEP/2,c.lon+STEP/2]],
-      {stroke:false,fillColor:jet(t),fillOpacity:0.72,renderer:gridRenderer}).addTo(gl);
-    n++;sum+=v;mx=Math.max(mx,v);});
-  curArrows(d);
-  const lead=meta.leads.find(L0=>String(L0.d)===String(d));
-  document.getElementById('kpi').innerHTML=
-    `<div>預報時刻<b>${lead.valid.slice(5,16)}</b></div><div>解析度<b>~5km</b></div>`+
-    `<div>平均<b>${(sum/n).toFixed(2)}</b></div><div>最高<b>${mx.toFixed(2)}</b></div>`;
-  const grad='linear-gradient(90deg,rgb(0,0,255),rgb(0,255,255),rgb(0,255,0),rgb(255,255,0),rgb(255,0,0))';
-  document.getElementById('legend').innerHTML=meta3[1]+
-    `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${grad}"></div>低 → 高　▲海流向量`;
-  document.getElementById('hint').textContent=layer.startsWith('S:')?'金黃/紅為棲地適合度高之未來熱區':'';
+function draw(){gl.clearLayers();
+  const D=DATA[leadKey];
+  if(baseKey==='habitat'){drawHabitat(D);curArrows();return;}
+  const m=BASE.find(b=>b[0]===baseKey),lo=m[2],hi=m[3],log=m[4]==='log';
+  const arr=baseKey==='chl'?CHL:D[baseKey];
+  let n=0,sum=0,mx=-1e9;
+  for(let i=0;i<N;i++){let v=arr[i]; if(v==null)continue;
+    let t=log?(Math.log10(Math.max(0.01,v))-lo)/(hi-lo):(v-lo)/(hi-lo);
+    rect(i,jet(t)); n++;sum+=v;mx=Math.max(mx,v);}
+  curArrows();
+  const lead=meta.leads.find(L0=>String(L0.d)===leadKey);
+  setKpi([['預報時刻',lead.valid.slice(5,16)],['解析度','~5km'],['平均',(sum/n).toFixed(2)],['最高',mx.toFixed(2)]]);
+  setLegend(m[1]+(baseKey==='chl'?'(靜態)':'')); document.getElementById('hint').textContent='';
 }
-leadSel.onchange=draw; laySel.onchange=draw; document.getElementById('curToggle').onchange=draw;
+function drawHabitat(D){const keys=[...checked];
+  if(!keys.length){setKpi([['提示','請勾選魚種']]);setLegend('棲地適合度');return;}
+  let n=0,sum=0,mx=0;
+  for(let i=0;i<N;i++){let best=null;
+    for(const nm of keys){const v=D.s[nm]?D.s[nm][i]:null; if(v!=null&&(best==null||v>best))best=v;}
+    if(best==null)continue; rect(i,jet(best/100)); n++;sum+=best;mx=Math.max(mx,best);}
+  const lead=meta.leads.find(L0=>String(L0.d)===leadKey);
+  setKpi([['預報時刻',lead.valid.slice(5,16)],['選取魚種',keys.length],['平均',(sum/n).toFixed(0)],['最高',mx]]);
+  setLegend(keys.length>1?'最適魚種棲地(複選取最大值)':'棲地適合度');
+  document.getElementById('hint').textContent=keys.length>1?'每格顯示所選魚種中最高的適合度':'';
+}
+document.getElementById('curToggle').onchange=draw;
 map.on('click',e=>{const la=e.latlng.lat,lo=e.latlng.lng;let bi=-1,bd=1e9;
-  cells.forEach((c,i)=>{const dd=Math.abs(c.lat-la)+Math.abs(c.lon-lo);if(dd<bd){bd=dd;bi=i;}});
-  const d=leadSel.value,D=DATA[d];let h=`座標 ${la.toFixed(3)}, ${lo.toFixed(3)}`;
-  if(bi>=0&&bd<=STEP*2&&D.sst[bi]!=null){h+=`<br/>SST ${D.sst[bi]}°C　海流 ${D.cspd[bi]} m/s`;
-    Object.entries(D.s).forEach(([k,a])=>{if(a[bi]!=null)h+=`<br/>${k} 適合度 ${a[bi]}`;});}
+  for(let i=0;i<N;i++){const d=Math.abs(cells[i].lat-la)+Math.abs(cells[i].lon-lo);if(d<bd){bd=d;bi=i;}}
+  const D=DATA[leadKey];let h=`座標 ${la.toFixed(3)}, ${lo.toFixed(3)}`;
+  if(bi>=0&&bd<=STEP*2&&D.sst[bi]!=null){h+=`<br/>SST ${D.sst[bi]}°C　海流 ${D.cspd[bi]} m/s`+
+    (CHL[bi]!=null?`　葉綠素 ${CHL[bi]}`:'');
+    const ks=baseKey==='habitat'&&checked.size?[...checked]:meta.species;
+    const lines=ks.map(nm=>{const v=D.s[nm]?D.s[nm][bi]:null;return v==null?null:`${nm} ${v}`;}).filter(Boolean);
+    if(lines.length)h+='<br/>適合度：'+lines.join('、');}
   else h+='<br/>此處無預報值(陸地/範圍外)';
   L.popup().setLatLng(e.latlng).setContent(h).openOn(map);});
 document.getElementById('note').innerHTML=
