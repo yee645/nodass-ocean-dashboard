@@ -146,6 +146,23 @@ SHARED_CSS = """
   .chartbox{position:relative;height:200px;width:100%;}
   canvas{background:#0e1726;border-radius:6px;}
   .leaflet-container{background:#0a1a2e;}
+  /* 分段按鈕(單選):比下拉更直觀、可一眼看到所有選項 */
+  .seg{display:inline-flex;flex-wrap:wrap;gap:4px;}
+  .seg button{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:6px 12px;font-size:0.85rem;cursor:pointer;}
+  .seg button:hover{color:#e8eef7;}
+  .seg button.on{background:#2f6fed;color:#fff;border-color:#2f6fed;font-weight:600;}
+  /* 勾選晶片(複選):魚種多時以可捲動晶片清單呈現 */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow:auto;
+    padding:6px;background:#11203a;border:1px solid #24344f;border-radius:8px;}
+  .chips label{display:inline-flex;align-items:center;gap:5px;background:#1c2c46;
+    border:1px solid #2f456b;border-radius:14px;padding:4px 10px;font-size:0.82rem;
+    color:#cdd9e5;cursor:pointer;white-space:nowrap;}
+  .chips label.on{background:#13361f;border-color:#2e933c;color:#eafff0;}
+  .chips input{accent-color:#2e933c;}
+  .toolbtn{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:5px 10px;font-size:0.8rem;cursor:pointer;}
+  .toolbtn:hover{color:#e8eef7;}
   @media (max-width:760px){ .side{flex:1 1 100%;} #map{flex:1 1 100%;} }
 """
 
