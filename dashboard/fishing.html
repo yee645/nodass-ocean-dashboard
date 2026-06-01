@@ -24,8 +24,10 @@
   .ctrl input[type=checkbox]{transform:scale(1.15);margin-right:4px;vertical-align:middle;}
   .wrap{display:flex;flex-wrap:wrap;gap:12px;padding:12px;}
   .panel{background:#15233b;border:1px solid #24344f;border-radius:8px;padding:12px;}
-  #map{height:clamp(360px,58vh,560px);flex:1 1 480px;min-width:300px;border-radius:8px;}
-  .side{flex:1 1 400px;min-width:300px;display:flex;flex-direction:column;gap:12px;}
+  /* 地圖獨佔整列 100% 寬，資訊面板於其下方以自適應網格排列 */
+  #map{height:clamp(400px,64vh,640px);flex:1 1 100%;width:100%;min-width:280px;border-radius:8px;}
+  .side{flex:1 1 100%;width:100%;display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;}
   table{width:100%;border-collapse:collapse;font-size:0.82rem;}
   th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #24344f;}
   th{color:#9fb3c8;font-weight:600;}
@@ -61,7 +63,7 @@
 <body>
 <header>
   <h1>NODASS 漁場環境與經濟魚種棲地預測儀表板</h1>
-  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 2026-06-01 14:37（第 6 月）</div>
+  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 2026-06-01 14:49（第 6 月）</div>
 </header>
 <div class="tabs"><a class="" href="index.html">極端浪況預警</a><a class="active" href="fishing.html">漁場環境與魚種預測</a></div>
 <div class="ctrl">
