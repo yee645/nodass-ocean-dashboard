@@ -168,16 +168,16 @@ SHARED_CSS = """
 
 
 def nav_html(active: str) -> str:
-    """產生頁籤導覽列。active 為 'wave'、'fish'、'hires' 或 'fc'。"""
+    """產生頁籤導覽列。active 為 'wave' 或 'platform'(含 fish/hires/fc 子頁)。
+
+    三個棲地子頁(漁場/高解析/預報)已整合進「漁場棲地平台」(platform.html)，
+    導覽收斂為兩個分頁。target=_top 確保平台 iframe 內點導覽會跳出至頂層。
+    """
     wave = "active" if active == "wave" else ""
-    fish = "active" if active == "fish" else ""
-    hires = "active" if active == "hires" else ""
-    fc = "active" if active == "fc" else ""
+    plat = "active" if active in ("platform", "fish", "hires", "fc") else ""
     return (
         '<div class="tabs">'
-        f'<a class="{wave}" href="index.html">極端浪況預警</a>'
-        f'<a class="{fish}" href="fishing.html">漁場環境與魚種預測</a>'
-        f'<a class="{hires}" href="hires.html">高解析小區棲地(衛星)</a>'
-        f'<a class="{fc}" href="forecast.html">未來棲地預報(CWA)</a>'
+        f'<a class="{wave}" target="_top" href="index.html">極端浪況預警</a>'
+        f'<a class="{plat}" target="_top" href="platform.html">漁場棲地平台（過去·現在·未來）</a>'
         '</div>'
     )

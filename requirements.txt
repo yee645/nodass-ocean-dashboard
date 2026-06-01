@@ -1,0 +1,6 @@
+# NODASS 海洋大數據儀表板 — Python 依賴
+# 網路請求使用標準庫 urllib，不需額外套件。
+numpy>=1.21
+scipy>=1.7
+Pillow>=9.0
+PyMuPDF>=1.20
