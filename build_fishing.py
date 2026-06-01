@@ -15,8 +15,8 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from dashboard_common import (SHARED_CSS, TAIWAN_POLY, haversine, in_polygon,
-                              load_coast, nav_html)
+from dashboard_common import (SHARED_CSS, haversine, load_coast, nav_html,
+                              on_land)
 from species_traits import SPECIES, suitability
 
 DATA_DIR = Path(r"D:\nodass")
@@ -96,10 +96,10 @@ def build_combined_grid(sst_pts, u_pts, v_pts, tr_pts) -> list[dict]:
     """細網格內插 SST、海流 u/v、SST 趨勢；網格集合由 SST 可內插範圍決定。"""
     grid = []
     lat = 21.5
-    while lat <= 25.8:
+    while lat <= 26.6:
         lon = 119.0
         while lon <= 122.6:
-            if not in_polygon(lon, lat, TAIWAN_POLY):
+            if not on_land(lon, lat):
                 sst = idw(sst_pts, lat, lon)
                 if sst is not None:
                     cell = {"lat": round(lat, 3), "lon": round(lon, 3),
@@ -188,7 +188,20 @@ TPL = r"""<!DOCTYPE html>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>__CSS__
-  .arrow{color:#fff;font-weight:700;text-shadow:0 0 3px #000;}
+  /* 魚群熱點：金色圓標內含「魚」字，醒目且與浮標圓點明顯區隔 */
+  .fishhot{width:22px;height:22px;line-height:20px;text-align:center;border-radius:50%;
+    background:#ffb300;color:#3a2600;font-weight:700;font-size:12px;border:2px solid #fff;
+    box-shadow:0 0 6px rgba(0,0,0,.6);}
+  /* 海流漂移箭頭：向上三角形，依流向旋轉 */
+  .drift{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
+    border-bottom:12px solid #7fd4ff;filter:drop-shadow(0 0 2px #000);}
+  /* 圖例樣本（class 選擇器特異度高於共用樣式的 .legend span，可覆寫尺寸） */
+  .legend .bar{width:80px;height:10px;border-radius:3px;
+    background:linear-gradient(90deg,rgb(46,147,108),rgb(240,162,2),rgb(215,38,61));}
+  .legend .lg-fish{width:16px;height:16px;line-height:14px;text-align:center;border-radius:50%;
+    background:#ffb300;color:#3a2600;font-weight:700;font-size:10px;border:1.5px solid #fff;}
+  .legend .lg-arrow{width:0;height:0;border-radius:0;border-left:5px solid transparent;
+    border-right:5px solid transparent;border-bottom:11px solid #7fd4ff;}
 </style>
 </head>
 <body>
@@ -228,9 +241,10 @@ __NAV__
   </div>
 </div>
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
-  <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格。<br/>
-  <b>魚群熱點</b>：適合度局部極大之網格（★）。<b>漂移方向</b>（箭頭）：浮標實測表層海流向量內插，代表魚群可能隨流移動方向；箭頭越長流速越大。<br/>
+  <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格；色塊邊界已用精細海岸線遮罩，僅顯示海域、不溢出陸地。<br/>
+  <b>魚群熱點（金色「魚」標）</b>：在適合度 ≥70 的海域網格中，依適合度高低並維持最小間距（約 35km）挑出最多 10 處代表性熱區，避免整片標記。<b>漂移方向（藍色箭頭）</b>：該處浮標實測表層海流向量內插，代表魚群可能隨流移動的去向，箭頭越長流速越大。<br/>
   <b>棲地趨勢</b>：近 6 小時 SST 變化；升溫使暖水魚種適宜帶向北/外擴、冷水魚種收縮，反之亦然。<br/>
+  <b>無色塊區域</b>：代表該海域不在開放浮標的有效內插範圍（最近浮標逾 120km），本系統不外推，以維持結果可信。<br/>
   <b>即時</b>：執行 live_update.py（可搭排程）重抓最新浮標資料並重建，重整頁面即見最新。完整葉綠素/歷史需會員權限。對齊 SDG 14。
 </div></div></div>
 <script>
@@ -272,30 +286,40 @@ function drawGrid(sp){gridLayer.clearLayers(); if(!sp)return;
     L.rectangle([[c.lat-STEP/2,c.lon-STEP/2],[c.lat+STEP/2,c.lon+STEP/2]],
       {stroke:false,fillColor:heat(v),fillOpacity:0.5,renderer:gridRenderer}).addTo(gridLayer);});}
 
-// 魚群熱點（局部極大）與漂移箭頭
+const DIR8=['北','東北','東','東南','南','西南','西','西北'];
+function bearingDeg(u,w){return (Math.atan2(u,w)*180/Math.PI+360)%360;}  // 0=北,90=東(順時針)
+function dirName(deg){return DIR8[Math.round(deg/45)%8];}
+
+// 魚群熱點：在高適合度網格中以最小間距去叢集，挑出少數分散的代表性熱區，
+// 避免整片標記；每處再以實測海流向量畫出漂移方向箭頭。
 function drawMovement(sp){
   moveLayer.clearLayers();
   if(!sp || !document.getElementById('moveToggle').checked) return;
-  const idx={}; GRID.forEach((c,i)=>idx[c.lat.toFixed(2)+','+c.lon.toFixed(2)]=i);
-  const hot=[];
-  GRID.forEach(c=>{const v=suit(c.v,sp); if(v<75)return;
-    // 局部極大判斷（與四鄰比較）
-    let isMax=true;
-    [[STEP,0],[-STEP,0],[0,STEP],[0,-STEP]].forEach(([dla,dlo])=>{
-      const k=(c.lat+dla).toFixed(2)+','+(c.lon+dlo).toFixed(2);
-      if(idx[k]!==undefined && suit(GRID[idx[k]].v,sp)>v) isMax=false;});
-    if(isMax) hot.push({c,v});});
-  // 避免過密，取前 30 個最高
-  hot.sort((a,b)=>b.v-a.v);
-  hot.slice(0,30).forEach(({c,v})=>{
-    L.marker([c.lat,c.lon],{icon:L.divIcon({className:'',html:'<div class="arrow">★</div>',iconSize:[16,16]})})
-      .bindTooltip(`魚群熱點 ${sp.name}<br/>座標 ${c.lat.toFixed(3)}, ${c.lon.toFixed(3)}<br/>適合度=${v} SST=${c.v}°C`).addTo(moveLayer);
-    if(c.u!==undefined){
-      const sc=0.6; // 流速→經緯度長度縮放
-      const lat2=c.lat + c.w*sc, lon2=c.lon + c.u*sc;
-      L.polyline([[c.lat,c.lon],[lat2,lon2]],{color:'#9fd3ff',weight:2,opacity:0.9}).addTo(moveLayer);
-      // 箭頭頭部
-      L.circleMarker([lat2,lon2],{radius:2.5,color:'#9fd3ff',fillColor:'#9fd3ff',fillOpacity:1}).addTo(moveLayer);
+  const scored=GRID.map(c=>({c,v:suit(c.v,sp)})).filter(o=>o.v>=70).sort((a,b)=>b.v-a.v);
+  const MIN_SEP=0.35;      // 熱點最小間距（度，約 35km）
+  const MAX_HOT=10;        // 最多熱點數
+  const picked=[];
+  for(const o of scored){
+    if(picked.length>=MAX_HOT) break;
+    if(picked.every(p=>Math.hypot(p.c.lat-o.c.lat,p.c.lon-o.c.lon)>=MIN_SEP)) picked.push(o);
+  }
+  const hotIcon=L.divIcon({className:'',html:'<div class="fishhot">魚</div>',
+    iconSize:[22,22],iconAnchor:[11,11]});
+  picked.forEach(({c,v})=>{
+    const spd=(c.u!==undefined)?Math.hypot(c.u,c.w):null;
+    L.marker([c.lat,c.lon],{icon:hotIcon}).bindTooltip(
+      `魚群熱點 · ${sp.name}<br/>座標 ${c.lat.toFixed(3)}, ${c.lon.toFixed(3)}`
+      +`<br/>棲地適合度 ${v}／100　SST ${c.v}°C`
+      +(spd!=null?`<br/>海流漂移 ${spd.toFixed(2)} m/s（往${dirName(bearingDeg(c.u,c.w))}）`:''),
+      {direction:'top'}).addTo(moveLayer);
+    if(spd!=null && spd>0.001){
+      const sc=0.9;                                   // 流速→經緯度長度縮放
+      const lat2=c.lat+c.w*sc, lon2=c.lon+c.u*sc;
+      L.polyline([[c.lat,c.lon],[lat2,lon2]],{color:'#7fd4ff',weight:2.5,opacity:0.95}).addTo(moveLayer);
+      const deg=bearingDeg(c.u,c.w);
+      L.marker([lat2,lon2],{icon:L.divIcon({className:'',
+        html:`<div class="drift" style="transform:rotate(${deg}deg)"></div>`,
+        iconSize:[14,14],iconAnchor:[7,7]})}).addTo(moveLayer);
     }
   });
 }
@@ -316,9 +340,11 @@ function render(mode){
     <div>高分站(≥60)<b style="color:#d7263d">${hi}</b></div>
     <div>SST範圍<b>${Math.min(...DATA.map(s=>s.sst)).toFixed(1)}–${Math.max(...DATA.map(s=>s.sst)).toFixed(1)}</b></div>
     <div>最高分<b style="color:${colorFor(vals[0])}">${vals[0]}</b></div>`;
-  document.getElementById('legend').innerHTML=
-    (mode===OVERALL?'潛在漁場：':'棲地適合度：')+
-    '<span style="background:#2e933c"></span>低<span style="background:#f0a202"></span>中<span style="background:#d7263d"></span>高　★魚群熱點　↗海流漂移';
+  document.getElementById('legend').innerHTML = mode===OVERALL
+    ? '潛在漁場指標：<span style="background:#2e933c"></span>低<span style="background:#f0a202"></span>中<span style="background:#d7263d"></span>高'
+    : '棲地適合度：<span class="bar"></span>低 → 高'
+      + '　<span class="lg-fish">魚</span>魚群熱點'
+      + '　<span class="lg-arrow"></span>海流漂移方向';
 
   const sp=sp0, spPanel=document.getElementById('spPanel');
   if(sp){spPanel.style.display='';
@@ -343,7 +369,7 @@ function render(mode){
       :avgTr<-0.02?(warm?'降溫→暖水適宜帶南縮':'降溫→冷水適宜帶南擴'):'海溫穩定，棲地短期內變動小';
     document.getElementById('moveInfo').innerHTML=
       `移動研判：${dirTxt}；近6小時海溫趨勢 ${avgTr>0?'+':''}${avgTr.toFixed(3)}°C/hr → ${shift}`;
-    document.getElementById('modeHint').textContent=`連續內插「${sp.name}」棲地適合度，★為魚群熱點、箭頭為海流漂移方向`;
+    document.getElementById('modeHint').textContent=`連續內插「${sp.name}」棲地適合度，金色「魚」標為魚群熱點、藍色箭頭為海流漂移方向`;
   }else{spPanel.style.display='none';
     document.getElementById('modeHint').textContent='海洋鋒面與海流綜合之潛在漁場熱區';}
 

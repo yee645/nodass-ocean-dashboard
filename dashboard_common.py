@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -17,12 +18,41 @@ def load_coast() -> str:
     except FileNotFoundError:
         return '{"type":"FeatureCollection","features":[]}'
 
-# 台灣本島粗略外框（lon, lat），用於排除陸地網格
-TAIWAN_POLY = [
-    (121.0, 25.1), (121.6, 25.3), (121.95, 25.0), (121.9, 24.4),
-    (121.6, 23.9), (121.5, 22.9), (120.9, 21.95), (120.65, 22.3),
-    (120.15, 22.55), (120.1, 23.1), (120.55, 24.2), (120.95, 25.0),
-]
+
+def _load_land_polys() -> list[list[tuple[float, float]]]:
+    """從精細海岸線 GeoJSON 取出所有陸地多邊形環（本島＋離島），供陸地遮罩用。
+
+    比舊版粗略 12 點外框精準，色塊邊界可貼合真實海岸、不溢出陸地、也不留近岸空缺。
+    """
+    try:
+        gj = json.loads(_COAST_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    polys: list[list[tuple[float, float]]] = []
+    for feat in gj.get("features", []):
+        geom = feat.get("geometry") or {}
+        gtype = geom.get("type")
+        coords = geom.get("coordinates") or []
+        if gtype == "Polygon":
+            for ring in coords:
+                polys.append([(p[0], p[1]) for p in ring])
+        elif gtype == "MultiPolygon":
+            for poly in coords:
+                for ring in poly:
+                    polys.append([(p[0], p[1]) for p in ring])
+    return polys
+
+
+# 精細陸地多邊形（程式載入時建立一次），取代舊版粗略外框
+LAND_POLYS = _load_land_polys()
+
+
+def on_land(lon: float, lat: float) -> bool:
+    """判斷座標是否落在任一陸地多邊形內（含本島與離島）。"""
+    for poly in LAND_POLYS:
+        if in_polygon(lon, lat, poly):
+            return True
+    return False
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -58,10 +88,10 @@ def build_grid(points: list[tuple[float, float, float]],
     """
     grid: list[dict] = []
     lat = 21.5
-    while lat <= 25.8:
+    while lat <= 26.6:
         lon = 119.0
         while lon <= 122.6:
-            if not in_polygon(lon, lat, TAIWAN_POLY):
+            if not on_land(lon, lat):
                 num = den = 0.0
                 nearest = 1e9
                 for plat, plon, pval in points:
