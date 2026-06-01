@@ -33,3 +33,16 @@ datasets_normal.json
 # Python 快取
 __pycache__/
 *.pyc
+
+# 大型原始資料與下載快取（第三方資料，可由各自來源重新取得，不入版控）
+_sat_cache/
+_tfrin_pdf/
+data/
+臺灣底拖與深海採集資料/
+截圖/
+_*.jpg
+_*.pdf
+_*.txt
+
+# 大型衍生網格（可由 build_sdm.py 重建）
+sdm/sdm_grid.json

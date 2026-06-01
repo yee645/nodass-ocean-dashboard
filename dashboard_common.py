@@ -151,12 +151,14 @@ SHARED_CSS = """
 
 
 def nav_html(active: str) -> str:
-    """產生頁籤導覽列。active 為 'wave' 或 'fish'。"""
+    """產生頁籤導覽列。active 為 'wave'、'fish' 或 'hires'。"""
     wave = "active" if active == "wave" else ""
     fish = "active" if active == "fish" else ""
+    hires = "active" if active == "hires" else ""
     return (
         '<div class="tabs">'
         f'<a class="{wave}" href="index.html">極端浪況預警</a>'
         f'<a class="{fish}" href="fishing.html">漁場環境與魚種預測</a>'
+        f'<a class="{hires}" href="hires.html">高解析小區棲地(衛星)</a>'
         '</div>'
     )
