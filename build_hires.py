@@ -32,7 +32,7 @@ OCC_CSV = BASE / "sdm" / "occurrences.csv"
 SDM_REPORT = BASE / "sdm" / "hires_sdm_report.csv"
 
 # 目標區與解析度（可自由調整：擴大區域/改日期窗即可換不同漁場與季節）
-TARGET = (119.8, 123.4, 23.3, 26.4)     # (west, east, south, north) 北部+東北+東部陸棚
+TARGET = (119.8, 123.4, 22.0, 26.4)     # (west, east, south, north) 北+東+南；西界受 Sentinel-3 footprint 限制
 STEP = 0.04                              # ~4km 高解析
 DATE1, DATE2 = "2021-02-10", "2021-04-20"   # 早春窗（與春季出現點配對）
 SEASON_MONTHS = {2, 3, 4}                # 與日期窗一致，用於篩選出現點季節
@@ -167,7 +167,7 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
         s2d[vy, vx] = sc
         results[sp] = s2d
         report.append((sp, len(pc), cv))
-        print(f"  SDM {sp[:6]}: presence={len(pc)} CV-AUC={cv}")
+        print(f"  SDM species#{len(results)}: presence={len(pc)} CV-AUC={cv}")
 
     with open(SDM_REPORT, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)

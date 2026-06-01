@@ -21,7 +21,7 @@ BASE = Path(__file__).resolve().parent
 OUT_JSON = BASE / "sdm" / "forecast_grid.json"
 OUT_HTML = BASE / "dashboard" / "forecast.html"
 
-TARGET = (119.8, 123.4, 23.3, 26.4)      # 小區(北部+東北+東部陸棚)
+TARGET = (119.0, 123.2, 21.7, 26.2)      # 環島(含西部/西南/南部沿海；OCM 全台覆蓋)
 STRIDE = 2                                # OCM 0.025° × 2 = 0.05°(~5km)
 LEAD_DAYS = [0, 1, 2, 3]                  # 今日、+1、+2、+3 天(受預報長度與起報日限制)
 SHOW_SPECIES = ["鬼頭刀", "鎖管(透抽)", "白帶魚", "白腹鯖(花飛)"]
