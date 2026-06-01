@@ -12,7 +12,9 @@
 """
 from __future__ import annotations
 
+import csv
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -26,16 +28,20 @@ from species_traits import SPECIES
 BASE = Path(__file__).resolve().parent
 OUT_JSON = BASE / "sdm" / "hires_grid.json"
 OUT_HTML = BASE / "dashboard" / "hires.html"
+OCC_CSV = BASE / "sdm" / "occurrences.csv"
+SDM_REPORT = BASE / "sdm" / "hires_sdm_report.csv"
 
-# 目標小區(台灣東北部彭佳嶼－東海陸棚鋒面帶，高生產力漁場)與解析度
-TARGET = (121.6, 123.4, 24.4, 26.2)     # (west, east, south, north)
-STEP = 0.02                              # ~2km 高解析
-DATE1, DATE2 = "2021-03-01", "2021-03-16"
-MAX_SCENES = 40
+# 目標區與解析度（可自由調整：擴大區域/改日期窗即可換不同漁場與季節）
+TARGET = (119.8, 123.4, 23.3, 26.4)     # (west, east, south, north) 北部+東北+東部陸棚
+STEP = 0.04                              # ~4km 高解析
+DATE1, DATE2 = "2021-02-10", "2021-04-20"   # 早春窗（與春季出現點配對）
+SEASON_MONTHS = {2, 3, 4}                # 與日期窗一致，用於篩選出現點季節
+MAX_SCENES = 60
+MIN_PRESENCE_SDM = 20                    # 高解析 SDM 驗證所需最少（區內）出現點(去重至網格)
 
 VAR = {"sst": ("SLNT_S3_SST", (8.0, 33.0)),    # (ClassCode, 合理值域)
        "chl": ("GOCI_CHL", (0.02, 35.0))}
-# 展示魚種(暖水表層 + 底棲)；皆用適溫窗，餌料因子用葉綠素
+# 機制式(適溫×餌料)展示魚種
 SHOW_SPECIES = ["白帶魚", "白腹鯖(花飛)", "鎖管(透抽)", "鬼頭刀"]
 
 
@@ -92,6 +98,84 @@ def thermal(sst, sp):
     return t
 
 
+def fit_hires_sdm(lats, lons, sst, chl, front):
+    """把高解析環境(SST、log葉綠素、鋒面)與區內季節出現點配對，
+    擬合 presence-only 高斯包絡 SDM，交叉驗證 AUC，回傳各魚種棲地適合度網格與報表。"""
+    chl_log = np.log10(np.where(chl > 0, chl, np.nan))
+    layers = [sst, chl_log, front]
+    valid = np.isfinite(sst) & np.isfinite(chl_log) & np.isfinite(front)
+    Z, stats = [], []
+    for L in layers:
+        m = float(np.nanmean(L[valid])); s = float(np.nanstd(L[valid])) or 1.0
+        stats.append((m, s)); Z.append((L - m) / s)
+    Zs = np.stack(Z, axis=2)                       # Ny×Nx×3
+    Ny, Nx = sst.shape
+    north, west = lats[0], lons[0]
+
+    # 用區內所有出現點(去重至網格)；衛星合成場為代表性(早春)環境，
+    # 季節一致性為已知限制(出現點橫跨年代/季節)，於報表與頁面說明。
+    occ = defaultdict(set)
+    with open(OCC_CSV, encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            la, lo = float(r["decimalLatitude"]), float(r["decimalLongitude"])
+            iy = int(round((north - la) / STEP)); ix = int(round((lo - west) / STEP))
+            if 0 <= iy < Ny and 0 <= ix < Nx and valid[iy, ix]:
+                occ[r["target_zh"]].add((iy, ix))
+
+    bg_idx = np.argwhere(valid)
+    rng = np.random.default_rng(42)
+    bg = bg_idx[rng.choice(len(bg_idx), min(2000, len(bg_idx)), replace=False)]
+    bgX = Zs[bg[:, 0], bg[:, 1]]
+
+    def envelope(P):
+        mu = P.mean(axis=0)
+        cov = np.cov(P, rowvar=False) + np.eye(3) * 1e-3
+        return mu, np.linalg.inv(cov)
+
+    def score(X, mu, ci):
+        d = X - mu
+        return np.exp(-0.5 * np.einsum("ij,jk,ik->i", d, ci, d))
+
+    def auc(pos, neg):
+        allv = np.concatenate([pos, neg]); order = allv.argsort()
+        ranks = np.empty(len(allv)); ranks[order] = np.arange(1, len(allv) + 1)
+        u = ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2
+        return round(float(u / (len(pos) * len(neg))), 3)
+
+    results, report = {}, []
+    for sp, cells in sorted(occ.items(), key=lambda kv: len(kv[1]), reverse=True):
+        pc = np.array(sorted(cells))
+        if len(pc) < MIN_PRESENCE_SDM:
+            report.append((sp, len(pc), "skip-不足"))
+            continue
+        P = Zs[pc[:, 0], pc[:, 1]]
+        # 交叉驗證：70/30 重複 5 次取平均測試 AUC
+        aucs = []
+        for k in range(5):
+            idx = rng.permutation(len(P)); cut = int(len(P) * 0.7)
+            tr, te = P[idx[:cut]], P[idx[cut:]]
+            if len(te) < 5:
+                continue
+            mu, ci = envelope(tr)
+            aucs.append(auc(score(te, mu, ci), score(bgX, mu, ci)))
+        cv = round(float(np.mean(aucs)), 3) if aucs else float("nan")
+        mu, ci = envelope(P)                       # 全資料擬合輸出網格
+        s2d = np.full((Ny, Nx), np.nan, dtype=np.float32)
+        vy, vx = np.where(valid)
+        sc = score(Zs[vy, vx], mu, ci)
+        sc = sc / sc.max() * 100.0
+        s2d[vy, vx] = sc
+        results[sp] = s2d
+        report.append((sp, len(pc), cv))
+        print(f"  SDM {sp[:6]}: presence={len(pc)} CV-AUC={cv}")
+
+    with open(SDM_REPORT, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["魚種", "區內季節出現點", "交叉驗證AUC/狀態"])
+        w.writerows(report)
+    return results, [(sp, n, a) for sp, n, a in report if not isinstance(a, str)]
+
+
 def main():
     month = int(DATE1[5:7])
     la_s, lo_s, sst = composite("sst")
@@ -115,6 +199,11 @@ def main():
         s = 100.0 * th * (0.6 + 0.4 * chl_norm)        # 適溫 × 餌料因子
         suit[nm] = s
 
+    # 資料驅動高解析 SDM（出現點 × 高解析環境，交叉驗證）
+    sdm_grids, sdm_rep = fit_hires_sdm(la_s, lo_s, sst, chl, front)
+    for nm, g in sdm_grids.items():
+        suit["SDM:" + nm] = g
+
     cells = []
     for iy in range(len(la_s)):
         for ix in range(len(lo_s)):
@@ -130,7 +219,9 @@ def main():
             cells.append(cell)
 
     meta = {"bbox": TARGET, "step": STEP, "window": [DATE1, DATE2],
-            "species": list(suit), "n_sst_valid": int(np.isfinite(sst).sum()),
+            "species": [nm for nm in SHOW_SPECIES if nm in suit],
+            "sdm": [{"name": sp, "n": n, "auc": a} for sp, n, a in sdm_rep],
+            "n_sst_valid": int(np.isfinite(sst).sum()),
             "source": "NODASS 開放衛星影像 (Sentinel-3 SST, GOCI 葉綠素)"}
     OUT_JSON.parent.mkdir(exist_ok=True)
     OUT_JSON.write_text(json.dumps({"meta": meta, "cells": cells},
@@ -178,9 +269,12 @@ __NAV__
 </div>
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
   <b>方法</b>：以圖例色帶將開放衛星影像數位化為數值，套陸地遮罩與合理值域，跨多場景平均以填補掃描帶/雲縫。
-  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>棲地適合度</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
-  <b>意義</b>：解析度 ~2km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。
-  漁獲量/CPUE 標籤尚在尋找，取得後可校正為真正的魚群量預測。對齊 SDG 14。
+  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>適溫代理</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
+  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館)與高解析環境(SST、log葉綠素、鋒面)配對，
+  擬合 presence-only 高斯包絡模型，以 70/30 重複交叉驗證 AUC(圖層名後括號)。<br/>
+  <b>意義</b>：解析度 ~4km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。<br/>
+  <b>限制</b>：衛星合成為早春代表場，出現點橫跨年代/季節(季節一致性為已知限制)；presence-only、無漁獲量。
+  漁獲量/CPUE 標籤到位後可校正為真正的魚群量預測。對齊 SDG 14。
 </div></div></div>
 <script>
 const DATA=__DATA__, COAST=__COAST__;
@@ -197,7 +291,8 @@ function jet(t){t=Math.max(0,Math.min(1,t));const r=Math.max(0,Math.min(1,1.5-Ma
 function val(c,layer){if(layer==='sst')return c.sst;if(layer==='chl')return c.chl;if(layer==='front')return c.front;return c.s[layer];}
 
 const layers=[['sst','海溫 SST (°C)',[18,28]],['chl','葉綠素 (mg/m³,log)',[-1.3,0.5]],['front','海溫鋒面強度',[0,1.2]]];
-meta.species.forEach(sp=>layers.push([sp,'棲地適合度：'+sp,[0,100]]));
+meta.species.forEach(sp=>layers.push([sp,'適溫代理：'+sp,[0,100]]));
+(meta.sdm||[]).forEach(x=>layers.push(['SDM:'+x.name,`資料驅動SDM：${x.name}(AUC ${x.auc})`,[0,100]]));
 const sel=document.getElementById('layer');
 layers.forEach(([k,t])=>{const o=document.createElement('option');o.value=k;o.textContent=t;sel.appendChild(o);});
 sel.onchange=()=>draw(sel.value);

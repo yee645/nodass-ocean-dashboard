@@ -110,6 +110,18 @@ def build() -> None:
 
     grid = build_grid([(s["meta"]["lat"], s["meta"]["lon"], s["hs_now"])
                        for s in stations])
+
+    # 時間軸：對齊各站示性波高時序（前向填補），供前端逐時重算波高熱區
+    times = sorted({p["t"] for s in stations for p in s["hs_series"]})
+    for s in stations:
+        mp = {p["t"]: p["v"] for p in s["hs_series"]}
+        last = None; arr = []
+        for t in times:
+            if t in mp:
+                last = mp[t]
+            arr.append(last)
+        s["hs_t"] = arr
+
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     OUT_DIR.mkdir(exist_ok=True)
@@ -117,6 +129,7 @@ def build() -> None:
                .replace("__NAV__", nav_html("wave"))
                .replace("__DATA__", json.dumps(stations, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
+               .replace("__TIMES__", json.dumps(times, ensure_ascii=False))
                .replace("__COAST__", load_coast())
                .replace("__TS__", generated))
     OUT.write_text(html, encoding="utf-8")
@@ -146,6 +159,12 @@ __NAV__
 <div class="ctrl">
   <label><input type="checkbox" id="gridToggle" checked />顯示連續波高熱區（IDW 內插）</label>
   <span class="note" id="gridLegend"></span>
+</div>
+<div class="ctrl">
+  <label for="tslider">時間軸：</label>
+  <input type="range" id="tslider" min="0" max="0" value="0" step="1" style="flex:1 1 240px;min-width:180px;" />
+  <span class="note" id="tlabel"></span>
+  <span class="note">（拖曳可回放近兩日波高場演變）</span>
 </div>
 <div class="wrap">
   <div id="map"></div>
@@ -178,8 +197,20 @@ __NAV__
 <script>
 const DATA = __DATA__;
 const GRID = __GRID__;
+const TIMES = __TIMES__;
 const COAST = __COAST__;
 const GRID_STEP = 0.1;
+const IDW_RADIUS = 120;   // km，與後端一致
+
+function haversine(a,b,c,d){const R=6371,p=Math.PI/180;
+  const u=Math.sin((c-a)*p/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
+  return 2*R*Math.asin(Math.sqrt(u));}
+// 以各站某時刻數值，IDW 重算單一網格點（與後端同公式）
+function idwAt(lat,lon,vals){let num=0,den=0,near=1e9;
+  for(let k=0;k<DATA.length;k++){const v=vals[k]; if(v==null)continue;
+    const d=haversine(lat,lon,DATA[k].meta.lat,DATA[k].meta.lon);
+    if(d<near)near=d; if(d<=IDW_RADIUS){const w=1/(d*d+1);num+=w*v;den+=w;}}
+  return (den>0&&near<=IDW_RADIUS)?num/den:null;}
 
 const map = L.map('map').setView([23.7, 121.0], 7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -195,16 +226,29 @@ map.createPane('top'); map.getPane('top').style.zIndex = '460';
 function hsColor(v){const x=Math.max(0,Math.min(4,v))/4;
   const r=Math.round(46+x*(215-46)),g=Math.round(147-x*(147-38)),b=Math.round(108-x*(108-61));
   return `rgb(${r},${g},${b})`;}
+const gridRenderer = L.canvas({padding:0.5});
 const gridLayer = L.layerGroup().addTo(map);
 function drawGrid(){gridLayer.clearLayers();
   if(!document.getElementById('gridToggle').checked)return;
-  GRID.forEach(c=>{L.rectangle([[c.lat-GRID_STEP/2,c.lon-GRID_STEP/2],[c.lat+GRID_STEP/2,c.lon+GRID_STEP/2]],
-    {stroke:false,fillColor:hsColor(c.v),fillOpacity:0.45}).addTo(gridLayer);});}
+  GRID.forEach(c=>{if(c.v==null)return;
+    L.rectangle([[c.lat-GRID_STEP/2,c.lon-GRID_STEP/2],[c.lat+GRID_STEP/2,c.lon+GRID_STEP/2]],
+    {stroke:false,fillColor:hsColor(c.v),fillOpacity:0.45,renderer:gridRenderer}).addTo(gridLayer);});}
 document.getElementById('gridToggle').onchange=drawGrid;
 document.getElementById('gridLegend').innerHTML=
   '波高(m)：<span style="display:inline-block;width:90px;height:10px;vertical-align:middle;'+
   'background:linear-gradient(90deg,rgb(46,147,108),rgb(215,38,61));border-radius:3px;"></span> 0 → 4+';
-drawGrid();
+
+// 時間軸：拖曳 slider 以該時刻各站波高 IDW 重算熱區
+const tslider=document.getElementById('tslider'), tlabel=document.getElementById('tlabel');
+function redrawAt(i){
+  const vals=DATA.map(s=>s.hs_t?s.hs_t[i]:null);
+  GRID.forEach(c=>{c.v=idwAt(c.lat,c.lon,vals);});
+  drawGrid();
+  tlabel.textContent=(TIMES[i]||'').slice(5,16).replace('T',' ');
+}
+if(TIMES.length){tslider.max=TIMES.length-1; tslider.value=TIMES.length-1;
+  tslider.oninput=()=>redrawAt(+tslider.value); redrawAt(TIMES.length-1);}
+else drawGrid();
 
 const markers = {};
 DATA.forEach(s => {

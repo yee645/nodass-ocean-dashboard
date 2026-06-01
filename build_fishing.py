@@ -153,6 +153,17 @@ def build() -> None:
         s["level"], s["color"] = level_color(s["fish_score"])
         s["species"] = {sp["name"]: suitability(s["sst"], sp, month) for sp in SPECIES}
 
+    # 時間軸：對齊各站海溫時序（前向填補），供前端逐時重算 SST 與棲地熱區
+    times = sorted({p["t"] for s in sst_st for p in s["sst_series"]})
+    for s in sst_st:
+        mp = {p["t"]: p["v"] for p in s["sst_series"]}
+        last = None; arr = []
+        for t in times:
+            if t in mp:
+                last = mp[t]
+            arr.append(last)
+        s["sst_t"] = arr
+
     sst_st.sort(key=lambda s: s["fish_score"], reverse=True)
 
     sst_pts = [(s["lat"], s["lon"], s["sst"]) for s in sst_st]
@@ -167,6 +178,7 @@ def build() -> None:
                .replace("__DATA__", json.dumps(sst_st, ensure_ascii=False))
                .replace("__SPECIES__", json.dumps(SPECIES, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
+               .replace("__TIMES__", json.dumps(times, ensure_ascii=False))
                .replace("__COAST__", load_coast())
                .replace("__MONTH__", str(month))
                .replace("__STEP__", str(GRID_STEP))
@@ -215,6 +227,12 @@ __NAV__
   <label><input type="checkbox" id="moveToggle" checked />顯示魚群熱點與漂移方向</label>
   <span id="modeHint" class="note"></span>
 </div>
+<div class="ctrl">
+  <label for="tslider">時間軸：</label>
+  <input type="range" id="tslider" min="0" max="0" value="0" step="1" style="flex:1 1 240px;min-width:180px;" />
+  <span class="note" id="tlabel"></span>
+  <span class="note">（拖曳可回放近兩日海溫與棲地熱區演變）</span>
+</div>
 <div class="wrap">
   <div id="map"></div>
   <div class="side">
@@ -250,10 +268,22 @@ __NAV__
 const DATA = __DATA__;
 const SPECIES = __SPECIES__;
 const GRID = __GRID__;
+const TIMES = __TIMES__;
 const COAST = __COAST__;
 const MONTH = __MONTH__;
 const STEP = __STEP__;
 const OVERALL = '__OVERALL__';
+const IDW_RADIUS = 120;   // km，與後端一致
+
+function haversineKm(a,b,c,d){const R=6371,p=Math.PI/180;
+  const u=Math.sin((c-a)*p/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
+  return 2*R*Math.asin(Math.sqrt(u));}
+// 以各站某時刻 SST，IDW 重算單一網格點（與後端同公式）
+function idwSST(lat,lon,vals){let num=0,den=0,near=1e9;
+  for(let k=0;k<DATA.length;k++){const v=vals[k]; if(v==null)continue;
+    const d=haversineKm(lat,lon,DATA[k].lat,DATA[k].lon);
+    if(d<near)near=d; if(d<=IDW_RADIUS){const w=1/(d*d+1);num+=w*v;den+=w;}}
+  return (den>0&&near<=IDW_RADIUS)?num/den:null;}
 
 function suit(sst, sp){ if(sst==null)return 0;
   const {sst_min:a,opt_lo:b,opt_hi:c,sst_max:d}=sp; let t;
@@ -464,6 +494,18 @@ map.on('click',e=>{
 
 render(OVERALL);
 showChart(DATA[0]);
+
+// 時間軸：拖曳以該時刻各站 SST 重算海溫場與棲地熱區（重整顯示）
+const tslider=document.getElementById('tslider'), tlabel=document.getElementById('tlabel');
+function setTime(i){
+  const vals=DATA.map(s=>s.sst_t?s.sst_t[i]:null);
+  GRID.forEach(c=>{const v=idwSST(c.lat,c.lon,vals); c.v=(v==null?null:Math.round(v*100)/100);});
+  render(sel.value);
+  tlabel.textContent=(TIMES[i]||'').slice(5,16).replace('T',' ');
+}
+if(TIMES.length){tslider.max=TIMES.length-1; tslider.value=TIMES.length-1;
+  tslider.oninput=()=>setTime(+tslider.value);
+  tlabel.textContent=(TIMES[TIMES.length-1]||'').slice(5,16).replace('T',' ');}
 </script>
 </body></html>
 """
