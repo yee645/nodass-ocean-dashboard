@@ -8,7 +8,7 @@ import json
 import math
 from pathlib import Path
 
-_COAST_FILE = Path(__file__).with_name("taiwan_coast.json")
+_COAST_FILE = Path(__file__).with_name("region_coast.json")
 
 
 def load_coast() -> str:
@@ -87,10 +87,10 @@ def build_grid(points: list[tuple[float, float, float]],
     回傳 [{lat, lon, v}]。
     """
     grid: list[dict] = []
-    lat = 21.5
-    while lat <= 26.6:
-        lon = 119.0
-        while lon <= 122.6:
+    lat = 20.0
+    while lat <= 27.0:
+        lon = 117.0
+        while lon <= 123.0:
             if not on_land(lon, lat):
                 num = den = 0.0
                 nearest = 1e9

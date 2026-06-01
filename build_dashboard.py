@@ -184,8 +184,12 @@ const GRID_STEP = 0.1;
 const map = L.map('map').setView([23.7, 121.0], 7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
-// 內嵌海岸線：無底圖（如 file://）時仍顯示陸地與地理範圍
-L.geoJSON(COAST, { style: { fillColor: '#1b2a3a', fillOpacity: 1, color: '#46627f', weight: 1 } }).addTo(map);
+// 陸地畫在高層 pane（zIndex 450）：蓋住熱區在岸邊的溢出，且大陸等所有陸地清晰可辨
+map.createPane('land'); map.getPane('land').style.zIndex = '450';
+L.geoJSON(COAST, { pane: 'land', interactive: false,
+  style: { fillColor: '#26344d', fillOpacity: 1, color: '#6f8db3', weight: 1 } }).addTo(map);
+// 浮標畫在陸地之上（zIndex 460），避免沿岸測站被陸地遮住
+map.createPane('top'); map.getPane('top').style.zIndex = '460';
 
 // 波高連續色階（0→4m：綠→黃→紅）
 function hsColor(v){const x=Math.max(0,Math.min(4,v))/4;
@@ -205,7 +209,7 @@ drawGrid();
 const markers = {};
 DATA.forEach(s => {
   const m = L.circleMarker([s.meta.lat, s.meta.lon], {
-    radius: 6 + s.risk / 10, color: '#fff', weight: 1.2, fillColor: s.color, fillOpacity: 0.95
+    pane: 'top', radius: 6 + s.risk / 10, color: '#fff', weight: 1.2, fillColor: s.color, fillOpacity: 0.95
   }).addTo(map);
   m.bindTooltip(`${s.meta.StationNameLocal}<br/>座標 ${s.meta.lat.toFixed(3)}, ${s.meta.lon.toFixed(3)}<br/>Hs=${s.hs_now}m 風險=${s.risk}(${s.level})`);
   m.on('click', () => showChart(s));
@@ -228,6 +232,18 @@ DATA.forEach(s => {
     <td><span class="badge" style="background:${s.color}">${s.risk} ${s.level}</span></td>`;
   tr.onclick = () => { showChart(s); map.setView([s.meta.lat, s.meta.lon], 9); };
   tb.appendChild(tr);
+});
+
+// 點地圖空白處：顯示該點經緯度與最近網格內插波高
+map.on('click', e => {
+  const lat = e.latlng.lat, lon = e.latlng.lng;
+  let best = null, bd = 1e9;
+  GRID.forEach(c => { const d = Math.hypot(c.lat - lat, c.lon - lon); if (d < bd) { bd = d; best = c; } });
+  let html = `座標 ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+  html += (best && bd <= GRID_STEP * 1.5)
+    ? `<br/>內插示性波高 Hs ≈ ${best.v} m`
+    : '<br/>此處不在浮標有效內插範圍（最近浮標逾 120km）';
+  L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
 });
 
 let chart;

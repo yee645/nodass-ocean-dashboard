@@ -16,6 +16,7 @@ nodass_data_root.html
 
 # 探測用暫存檔
 _*.json
+_*.geojson
 q_*.json
 tok_*.json
 dl_*.bin
