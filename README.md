@@ -22,11 +22,15 @@ bash setup.sh        # 或 Windows: pwsh setup.ps1
 ```
 各頁也可單獨重建：`python build_fishing.py` / `build_hires.py` / `build_forecast.py` / `build_platform.py`（hires、forecast 會自動抓開放衛星與 CWA OCM，需網路）。
 
-## 資料來源（使用須註明）
-- 國家海洋資料庫及共享平臺（NODASS）開放浮標與衛星影像 API
-- 中央氣象署（CWA）OCM 海流模式（oceanapi OPeNDAP）
-- 水產試驗所（TFRIN）臺灣周邊海域漁場環境資料
-- TaiBIF / GBIF 物種出現紀錄、Natural Earth 海岸線
+## 資料來源（使用須註明）與下載連結
+- 國家海洋資料庫及共享平臺（NODASS）開放浮標與衛星影像 API（程式自動抓，免金鑰）
+- 中央氣象署（CWA）OCM 海流模式 OPeNDAP：https://oceanapi.cwa.gov.tw/opendap/OCM/
+- 水產試驗所（TFRIN）臺灣周邊海域漁場環境：https://www.tfrin.gov.tw/ws.php?id=70
+- 魚種出現點（GBIF，免金鑰）：`python fetch_occurrences.py` 重抓；入口 https://www.gbif.org/occurrence/search
+- TaiBIF DwCA（底拖/深海）：https://ipt.taibif.tw 、https://www.gbif.org/dataset/search
+- Natural Earth 海岸線（`make_region_coast.py` 內含來源）
+
+> 原始生物資料（`data/`）體積大未入庫；衍生成果 `sdm/occurrences.csv` 已隨庫提供，下游可直接運作。要重建出現點才需重抓（見上 `fetch_occurrences.py`）。
 
 ## 準確度與免責
 - 魚群圖層為「**環境棲地潛勢**」（presence-only SDM，空間 CV AUC 0.75–0.90），**非漁獲量保證**。

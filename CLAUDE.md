@@ -61,10 +61,16 @@
 - **P3**：加 Global Fishing Watch 船隊作業熱區（AIS，需免費金鑰）+ 各區/魚種「信心圖層」。
 - **P4（質變，需資料）**：取得漁業署漁獲/VMS/CPUE → 把棲地升級為驗證過的漁獲潛勢/CPUE 預測。
 
-## gitignored 資料（clone 後會缺，及重抓方式）
-- `data/`（TaiBIF 生物調查、`gbif_taiwan_fish.csv`）：來源 taibif.tw / gbif.org 匯出，欄位需含 target_zh 或可由屬名對應；**僅 `build_occurrences.py` 需要**（其輸出已上傳）。
-- `_sat_cache/`、`_tfrin_pdf/`：由 `fetch_satellite.py`/`fetch_tfrin_env.py` 自動重抓。
-- `.nodass_token`：機密，勿外流；目前用不到。
+## gitignored 資料（clone 後會缺，及**下載連結/重抓方式**）
+- `data/gbif_taiwan_fish.csv`（魚種出現點）：
+  - **可重現重抓（推薦，免金鑰）**：`python fetch_occurrences.py` → 由 GBIF API 重建。
+  - GBIF API：`https://api.gbif.org/v1/occurrence/search`（taxonKey + geometry WKT 框 + hasCoordinate）。
+  - GBIF 入口（人工檢視/匯出）：https://www.gbif.org/occurrence/search?geometry=POLYGON((118%2020,124%2020,124%2027,118%2027,118%2020))&has_coordinate=true
+- `data/全球生物多樣性資料庫(TaiBIF)生物調查資料/`、`臺灣底拖與深海採集資料/`（DwCA）：
+  - 來源：TaiBIF IPT https://ipt.taibif.tw 、GBIF 資料集搜尋 https://www.gbif.org/dataset/search（底拖=bottom_trawl、深海=deep-sea-fishes）。
+  - 註：**僅 `build_occurrences.py` 需要這些原始檔**；其輸出 `sdm/occurrences.csv` 已隨庫提供，下游 `build_sdm`/`build_hires` 不需原始資料。
+- `_sat_cache/`、`_tfrin_pdf/`：由 `fetch_satellite.py`/`fetch_tfrin_env.py` 自動重抓（開放、免金鑰）。
+- `.nodass_token`：機密，勿外流；目前所有管線都用開放源，不需它。
 
 ## 專案慣例（沿用 owner 的全域規則；協作 agent 請遵守）
 - 全部輸出用**繁體中文**（台灣慣用語），**不用 emoji**。
