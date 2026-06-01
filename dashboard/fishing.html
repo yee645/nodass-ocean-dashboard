@@ -43,6 +43,23 @@
   .chartbox{position:relative;height:200px;width:100%;}
   canvas{background:#0e1726;border-radius:6px;}
   .leaflet-container{background:#0a1a2e;}
+  /* 分段按鈕(單選):比下拉更直觀、可一眼看到所有選項 */
+  .seg{display:inline-flex;flex-wrap:wrap;gap:4px;}
+  .seg button{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:6px 12px;font-size:0.85rem;cursor:pointer;}
+  .seg button:hover{color:#e8eef7;}
+  .seg button.on{background:#2f6fed;color:#fff;border-color:#2f6fed;font-weight:600;}
+  /* 勾選晶片(複選):魚種多時以可捲動晶片清單呈現 */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow:auto;
+    padding:6px;background:#11203a;border:1px solid #24344f;border-radius:8px;}
+  .chips label{display:inline-flex;align-items:center;gap:5px;background:#1c2c46;
+    border:1px solid #2f456b;border-radius:14px;padding:4px 10px;font-size:0.82rem;
+    color:#cdd9e5;cursor:pointer;white-space:nowrap;}
+  .chips label.on{background:#13361f;border-color:#2e933c;color:#eafff0;}
+  .chips input{accent-color:#2e933c;}
+  .toolbtn{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:5px 10px;font-size:0.8rem;cursor:pointer;}
+  .toolbtn:hover{color:#e8eef7;}
   @media (max-width:760px){ .side{flex:1 1 100%;} #map{flex:1 1 100%;} }
 
   /* 魚群熱點移動方位標籤：浮於金色熱點圈上方 */
@@ -63,13 +80,13 @@
 <body>
 <header>
   <h1>NODASS 漁場環境與經濟魚種棲地預測儀表板</h1>
-  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 2026-06-02 00:17（第 6 月）</div>
+  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 2026-06-02 01:15（第 6 月）</div>
 </header>
 <div class="tabs"><a class="" href="index.html">極端浪況預警</a><a class="active" href="fishing.html">漁場環境與魚種預測</a><a class="" href="hires.html">高解析小區棲地(衛星)</a><a class="" href="forecast.html">未來棲地預報(CWA)</a></div>
 <div class="ctrl">
-  <label for="mode">顯示模式：</label>
-  <select id="mode"><option value="__OVERALL__">綜合潛在漁場指標</option></select>
-  <label><input type="checkbox" id="moveToggle" checked />顯示魚群熱點與漂移方向</label>
+  <strong style="color:#cdd9e5;font-size:0.85rem;padding-top:6px;">顯示</strong>
+  <span class="chips" id="modeChips"></span>
+  <label style="padding-top:6px;"><input type="checkbox" id="moveToggle" checked />魚群熱區與漂移</label>
   <span id="modeHint" class="note"></span>
 </div>
 <div class="ctrl">
@@ -153,11 +170,17 @@ L.geoJSON(COAST,{pane:'land',interactive:false,
 // 浮標與熱點圈畫在陸地之上（zIndex 460），避免沿岸測站被陸地遮住
 map.createPane('top'); map.getPane('top').style.zIndex='460';
 
-const sel = document.getElementById('mode');
-SPECIES.forEach(sp=>{const o=document.createElement('option');o.value=sp.name;
-  o.textContent=`魚種：${sp.name}（${sp.en}）`;sel.appendChild(o);});
-sel.onchange=()=>render(sel.value);
-document.getElementById('moveToggle').onchange=()=>render(sel.value);
+let curMode = OVERALL;
+const modeChips = document.getElementById('modeChips');
+function addChip(val,label){const lab=document.createElement('label');lab.dataset.v=val;
+  lab.innerHTML=`<input type="radio" name="m" ${val===curMode?'checked':''}/> ${label}`;
+  lab.classList.toggle('on',val===curMode);
+  lab.querySelector('input').onchange=()=>{curMode=val;
+    [...modeChips.children].forEach(c=>c.classList.toggle('on',c.dataset.v===val));render(val);};
+  modeChips.appendChild(lab);}
+addChip(OVERALL,'綜合潛在漁場');
+SPECIES.forEach(sp=>addChip(sp.name,sp.name));
+document.getElementById('moveToggle').onchange=()=>render(curMode);
 
 function drawGrid(sp){gridLayer.clearLayers(); if(!sp)return;
   GRID.forEach(c=>{const v=suit(c.v,sp); if(v<=0)return;
@@ -327,7 +350,7 @@ map.on('click',e=>{
   let html=`座標 ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
   if(best && bd<=STEP*1.5){
     html+=`<br/>SST ${best.v}°C`;
-    const sp=SPECIES.find(x=>x.name===sel.value);
+    const sp=SPECIES.find(x=>x.name===curMode);
     html+= sp?`<br/>${sp.name} 棲地適合度 ${suit(best.v,sp)}／100`:'<br/>（綜合潛在漁場模式）';
     if(best.u!==undefined)
       html+=`<br/>海流 ${Math.hypot(best.u,best.w).toFixed(2)} m/s 往${dirName(bearingDeg(best.u,best.w))}`;
@@ -345,7 +368,7 @@ const tslider=document.getElementById('tslider'), tlabel=document.getElementById
 function setTime(i){
   const vals=DATA.map(s=>s.sst_t?s.sst_t[i]:null);
   GRID.forEach(c=>{const v=idwSST(c.lat,c.lon,vals); c.v=(v==null?null:Math.round(v*100)/100);});
-  render(sel.value);
+  render(curMode);
   tlabel.textContent=(TIMES[i]||'').slice(5,16).replace('T',' ');
 }
 if(TIMES.length){tslider.max=TIMES.length-1; tslider.value=TIMES.length-1;

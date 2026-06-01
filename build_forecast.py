@@ -81,10 +81,20 @@ def chl_climatology(lat_ref, lon_ref, month):
         chl = np.full((len(lat_ref), len(lon_ref)), np.nan, dtype=np.float32)
     else:
         chl = np.nanmean(np.stack(stack), axis=0)
-    chl_norm = np.clip((np.log10(np.where(chl > 0, chl, np.nan)) - np.log10(0.05)) /
-                       (np.log10(2.0) - np.log10(0.05)), 0, 1)
-    print(f"  GOCI 葉綠素氣候平均：場景 {len(stack)}  有效格 {int(np.isfinite(chl).sum())}")
-    return chl, chl_norm
+
+    # 餌料因子用「補洞 + 平滑」後的連續葉綠素場，避免覆蓋邊界造成棲地圖硬跳變(斷層)
+    from scipy import ndimage
+    norm = np.clip((np.log10(np.where(chl > 0, chl, np.nan)) - np.log10(0.05)) /
+                   (np.log10(2.0) - np.log10(0.05)), 0, 1)
+    m = np.isfinite(norm)
+    if m.sum() > 0:
+        idx = ndimage.distance_transform_edt(~m, return_distances=False, return_indices=True)
+        filled = norm[tuple(idx)]                      # 以最近有效值補洞
+        chl_norm = ndimage.gaussian_filter(filled, sigma=2.0)   # 高斯平滑成連續場
+    else:
+        chl_norm = np.zeros_like(chl)
+    print(f"  GOCI 葉綠素氣候平均：場景 {len(stack)}  有效格 {int(m.sum())}（餌料因子已補洞+平滑為連續場）")
+    return chl, chl_norm                               # chl=原始(供顯示)，chl_norm=連續(供因子)
 
 
 def main():
