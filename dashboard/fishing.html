@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="fish_data.js"></script>
 <style>
   *{box-sizing:border-box;}
   html{font-size:clamp(13px,0.55vw + 11px,17px);}
@@ -58,6 +59,22 @@
     border:1.5px solid #ffd000;background:rgba(255,208,0,.18);}
   .legend .lg-arrow{width:0;height:0;border-radius:0;border-left:5px solid transparent;
     border-right:5px solid transparent;border-bottom:11px solid #7fd4ff;}
+
+  /* === 月份時間軸（GBIF 實際觀測） === */
+  .tl-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;}
+  .tl-title{font-size:0.88rem;font-weight:600;color:#e8eef7;}
+  .tl-badge{background:#1c2c46;border-radius:10px;padding:3px 10px;font-size:0.78rem;color:#ffd000;}
+  .tl-month{font-size:1.1rem;font-weight:700;color:#ff9800;min-width:50px;text-align:right;}
+  .tl-play{background:#1c2c46;border:1px solid #2f456b;color:#ff9800;border-radius:6px;
+    padding:4px 12px;cursor:pointer;font-size:0.82rem;}
+  .tl-play:hover{background:#2a3f5f;}
+  .tl-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-top:8px;}
+  .tl-cell{background:#1c2c46;border:1px solid #2f456b;border-radius:4px;text-align:center;
+    padding:6px 2px;font-size:0.75rem;color:#9fb3c8;cursor:pointer;transition:background .15s;}
+  .tl-cell:hover{background:#2a3f5f;color:#e8eef7;}
+  .tl-cell.active{background:#ff9800;color:#0e1726;border-color:#ff9800;font-weight:700;}
+  .gbif-info{font-size:0.78rem;color:#9fb3c8;margin-top:4px;}
+  .gbif-info b{color:#ff9800;}
 </style>
 </head>
 <body>
@@ -75,6 +92,26 @@
 <div class="wrap">
   <div id="map"></div>
   <div class="side">
+    <!-- 月份時間軸：grid 第一列，選魚種後顯示，不影響地圖排版 -->
+    <div id="timelinePanel" style="display:none;grid-column:1/-1;">
+      <div style="background:#15233b;border:1px solid #24344f;border-radius:8px;padding:12px 16px;">
+        <div class="tl-header">
+          <span class="tl-title">&#x1F4C5; 月份觀測紀錄（GBIF 實際資料 2016–2026）</span>
+          <span class="tl-badge" id="gbifBadge">0 筆</span>
+          <span class="tl-month" id="tlMonthLabel">6 月</span>
+          <button class="tl-play" id="tlPlayBtn">&#9654; 播放</button>
+        </div>
+        <div class="tl-grid" id="monthGrid">
+          <div class="tl-cell" data-m="1">1月</div><div class="tl-cell" data-m="2">2月</div>
+          <div class="tl-cell" data-m="3">3月</div><div class="tl-cell" data-m="4">4月</div>
+          <div class="tl-cell" data-m="5">5月</div><div class="tl-cell active" data-m="6">6月</div>
+          <div class="tl-cell" data-m="7">7月</div><div class="tl-cell" data-m="8">8月</div>
+          <div class="tl-cell" data-m="9">9月</div><div class="tl-cell" data-m="10">10月</div>
+          <div class="tl-cell" data-m="11">11月</div><div class="tl-cell" data-m="12">12月</div>
+        </div>
+        <div class="gbif-info" id="gbifInfo">點選月份格查看實際觀測紀錄（藍色魚圖示）。點圖示可查看日期與座標。</div>
+      </div>
+    </div>
     <div class="panel">
       <div class="kpi" id="kpi"></div>
       <div class="legend" style="margin-top:8px;" id="legend"></div>
@@ -96,6 +133,8 @@
     </div>
   </div>
 </div>
+
+
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
   <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格；色塊邊界已用精細海岸線遮罩，僅顯示海域、不溢出陸地。<br/>
   <b>魚群熱區（金色高亮區）</b>：在適合度 ≥70 的海域網格中，把彼此相鄰的格子做連通分群並聯集成一塊不規則高亮區（沿實際 0.05° 格邊界，不圈進非熱區或陸地），整塊只標一處。<b>可能移動方位（藍色箭頭與標籤）</b>：取該熱區內各格浮標實測表層海流向量平均，自區域質心畫出單一箭頭，代表魚群可能隨流移動的去向，箭頭越長流速越大。點地圖任一點可查該處經緯度與海況。<br/>
@@ -134,6 +173,8 @@ L.geoJSON(COAST,{pane:'land',interactive:false,
   style:{fillColor:'#26344d',fillOpacity:1,color:'#6f8db3',weight:1}}).addTo(map);
 // 浮標與熱點圈畫在陸地之上（zIndex 460），避免沿岸測站被陸地遮住
 map.createPane('top'); map.getPane('top').style.zIndex='460';
+// GBIF 魚種觀測紀錄圖層：最上層（zIndex 470），不被陸地或熱點遮住
+map.createPane('gbif'); map.getPane('gbif').style.zIndex='470';
 
 const sel = document.getElementById('mode');
 SPECIES.forEach(sp=>{const o=document.createElement('option');o.value=sp.name;
@@ -284,7 +325,7 @@ function render(mode){
     tr.innerHTML=isSp
       ?`<td>${s.name}</td><td>${xy}</td><td>${s.sst}</td><td><span class="badge" style="background:${colorFor(v)}">${v}</span></td>`
       :`<td>${s.name}</td><td>${xy}</td><td>${s.sst}</td><td>${s.front}</td><td>${s.current??'-'}</td><td><span class="badge" style="background:${colorFor(v)}">${v} ${s.level}</span></td>`;
-    tr.onclick=()=>{showChart(s);map.setView([s.lat,s.lon],9);}; tb.appendChild(tr);});
+    tr.onclick=()=>showChart(s); tb.appendChild(tr);});
   document.getElementById('tblTitle').textContent=(isSp?`${mode} 適合度排序`:'潛在漁場排序')+'（點擊看海溫時序）';
 }
 
@@ -321,5 +362,128 @@ map.on('click',e=>{
 
 render(OVERALL);
 showChart(DATA[0]);
+
+// === GBIF 月份觀測紀錄功能 ===
+const GBIF_ENABLED = true; // 設為 true 開啟時間軸功能
+let gbifData = [];
+let gbifLayer = L.layerGroup().addTo(map);
+let tlTimer = null;
+
+gbifData = (typeof FISH_DATA !== 'undefined') ? FISH_DATA : [];
+
+// 比對順序：1.中文名完全符合 → 2.中文名關鍵字包含 → 3.學名屬名符合
+function matchGbif(specName) {
+  if (!gbifData.length) return [];
+
+  // 1. 中文名完全符合
+  let result = gbifData.filter(d => d.zh === specName);
+  if (result.length) return result;
+
+  // 2. 中文名關鍵字（去括號）部分包含
+  const key = specName.replace(/[（(][^）)]*[）)]/g, '').trim();
+  result = gbifData.filter(d => d.zh.includes(key) || key.includes(d.zh));
+  if (result.length) return result;
+
+  // 3. 學名屬名比對（跳過科名層級 -idae）
+  const sp = SPECIES.find(x => x.name === specName);
+  if (!sp) return [];
+  const genus = sp.sci.toLowerCase().split(/\s+/)[0];
+  if (genus.endsWith('idae') || genus.endsWith('ini')) return [];
+  return gbifData.filter(d => d.sci.toLowerCase().startsWith(genus));
+}
+
+function pointInRing(lat, lon, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j]; // GeoJSON: [lon, lat]
+    if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+      inside = !inside;
+  }
+  return inside;
+}
+
+function isOnLand(lat, lon) {
+  for (const feat of COAST.features) {
+    const rings = feat.geometry.coordinates;
+    if (!pointInRing(lat, lon, rings[0])) continue;
+    let inHole = false;
+    for (let h = 1; h < rings.length; h++)
+      if (pointInRing(lat, lon, rings[h])) { inHole = true; break; }
+    if (!inHole) return true;
+  }
+  return false;
+}
+
+function renderGbif(month) {
+  gbifLayer.clearLayers();
+  if (!GBIF_ENABLED) return;
+  const mode = sel.value;
+  if (mode === OVERALL) return;
+
+  const matched = matchGbif(mode).filter(d => d.month === month && !isOnLand(d.lat, d.lon));
+  const fishIcon = L.divIcon({
+    className: '',
+    html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 18" width="28" height="18">'
+        + '<path d="M4,9 Q8,3 16,5 Q20,6 23,9 Q20,12 16,13 Q8,15 4,9 Z" fill="#29b6f6" stroke="#fff" stroke-width="1.2"/>'
+        + '<path d="M4,9 L0,4 L2,9 L0,14 Z" fill="#29b6f6" stroke="#fff" stroke-width="1"/>'
+        + '<circle cx="19" cy="8" r="1.5" fill="#0d1b2a"/>'
+        + '</svg>',
+    iconSize: [28, 18],
+    iconAnchor: [14, 9]
+  });
+  matched.forEach(d => {
+    L.marker([d.lat, d.lon], {pane: 'gbif', icon: fishIcon})
+      .bindPopup(`<b>${d.zh}</b><br><i style="font-size:0.8em">${d.sci}</i><br>📅 ${d.date}<br>📍 ${d.lat}, ${d.lon}`)
+      .addTo(gbifLayer);
+  });
+
+  // 更新月份總筆數（同樣排除陸地點）
+  const seaAll = matchGbif(mode).filter(d => !isOnLand(d.lat, d.lon));
+  document.getElementById('gbifBadge').textContent = `${matched.length} 筆（共 ${seaAll.length} 筆）`;
+  document.getElementById('gbifInfo').innerHTML =
+    `<b>${MONTHS_ZH[month-1]}</b>：${matched.length} 筆海域觀測紀錄。藍色魚圖示為 GBIF 來源資料（2016–2026），與上方 SDM 預測層疊合顯示。`;
+}
+
+const MONTHS_ZH = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+let currentMonth = 6;
+
+function updateMonth(month) {
+  currentMonth = month;
+  document.querySelectorAll('.tl-cell').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.m) === month);
+  });
+  document.getElementById('tlMonthLabel').textContent = month + ' 月';
+  renderGbif(month);
+}
+
+document.getElementById('monthGrid').addEventListener('click', function(e) {
+  const cell = e.target.closest('.tl-cell');
+  if (cell) updateMonth(parseInt(cell.dataset.m));
+});
+
+document.getElementById('tlPlayBtn').addEventListener('click', function() {
+  if (tlTimer) {
+    clearInterval(tlTimer); tlTimer = null;
+    this.textContent = '▶ 播放';
+  } else {
+    this.textContent = '⏸ 暫停';
+    tlTimer = setInterval(() => {
+      updateMonth(currentMonth >= 12 ? 1 : currentMonth + 1);
+    }, 1200);
+  }
+});
+
+// 攔截原有的 mode 切換，連動顯示/隱藏時間軸
+const origRender = render;
+sel.addEventListener('change', function() {
+  const panel = document.getElementById('timelinePanel');
+  if (!GBIF_ENABLED || this.value === OVERALL) {
+    panel.style.display = 'none';
+    gbifLayer.clearLayers();
+  } else {
+    panel.style.display = 'block';
+    updateMonth(currentMonth);
+  }
+});
 </script>
 </body></html>
