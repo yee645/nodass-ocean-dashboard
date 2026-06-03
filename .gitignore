@@ -14,6 +14,10 @@ nodass_data_root.html
 # Claude Code 內部檔
 .claude/
 
+# 本地筆記與進度清單
+list.md
+commit_msg.txt
+
 # 探測用暫存檔
 _*.json
 _*.geojson
@@ -46,3 +50,6 @@ _*.txt
 
 # 大型衍生網格（可由 build_sdm.py 重建）
 sdm/sdm_grid.json
+
+# GBIF 原始抓取資料（可由 fetch_gbif.py 重建）
+gbif_taiwan_fish.csv
