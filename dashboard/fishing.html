@@ -458,7 +458,7 @@ function isOnLand(lat, lon) {
 function renderGbif(month) {
   gbifLayer.clearLayers();
   if (!GBIF_ENABLED) return;
-  const mode = sel.value;
+  const mode = curMode;
   if (mode === OVERALL) return;
 
   const matched = matchGbif(mode).filter(d => d.month === month && !isOnLand(d.lat, d.lon));
@@ -515,10 +515,9 @@ document.getElementById('tlPlayBtn').addEventListener('click', function() {
 });
 
 // 攔截原有的 mode 切換，連動顯示/隱藏時間軸
-const origRender = render;
-sel.addEventListener('change', function() {
+document.getElementById('modeChips').addEventListener('change', function() {
   const panel = document.getElementById('timelinePanel');
-  if (!GBIF_ENABLED || this.value === OVERALL) {
+  if (!GBIF_ENABLED || curMode === OVERALL) {
     panel.style.display = 'none';
     gbifLayer.clearLayers();
   } else {
