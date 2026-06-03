@@ -180,6 +180,41 @@ def main() -> None:
                 "source": src,
             })
 
+    # 併入已預先整理(含 target_zh)的 GBIF 出現點(近期 2016+，補足表層洄游魚種)
+    for pf in [BASE / "data" / "gbif_taiwan_fish.csv"]:
+        if not pf.exists():
+            continue
+        rows, cols = open_table(pf)
+        c_zh = col(cols, "target_zh")
+        c_sci = col(cols, "scientificname", "species")
+        c_lat = col(cols, "decimallatitude", "latitude", "lat")
+        c_lon = col(cols, "decimallongitude", "longitude", "lon")
+        c_date = col(cols, "eventdate", "date")
+        if not (c_zh and c_lat and c_lon):
+            continue
+        scanned += 1
+        for x in rows:
+            zh = (x.get(c_zh) or "").strip()
+            lat, lon = num(x.get(c_lat)), num(x.get(c_lon))
+            if not zh or lat is None or lon is None:
+                continue
+            if not (LON_MIN <= lon <= LON_MAX and LAT_MIN <= lat <= LAT_MAX):
+                continue
+            sci = (x.get(c_sci) or "").strip()
+            date = (x.get(c_date) or "").strip() if c_date else ""
+            year, mon = parse_date(date)
+            key = (sci, round(lat, 3), round(lon, 3), date[:10])
+            if key in seen:
+                continue
+            seen.add(key)
+            records.append({
+                "target_zh": zh, "scientificName": sci, "vernacularName": "",
+                "class": "", "decimalLatitude": round(lat, 4),
+                "decimalLongitude": round(lon, 4), "eventDate": date,
+                "year": year, "month": mon, "depth_m": "",
+                "individualCount": 1, "source": "GBIF",
+            })
+
     OUT_DIR.mkdir(exist_ok=True)
     occ = OUT_DIR / "occurrences.csv"
     fields = ["target_zh", "scientificName", "vernacularName", "class",

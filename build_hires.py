@@ -12,7 +12,9 @@
 """
 from __future__ import annotations
 
+import csv
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -26,16 +28,20 @@ from species_traits import SPECIES
 BASE = Path(__file__).resolve().parent
 OUT_JSON = BASE / "sdm" / "hires_grid.json"
 OUT_HTML = BASE / "dashboard" / "hires.html"
+OCC_CSV = BASE / "sdm" / "occurrences.csv"
+SDM_REPORT = BASE / "sdm" / "hires_sdm_report.csv"
 
-# 目標小區(台灣東北部彭佳嶼－東海陸棚鋒面帶，高生產力漁場)與解析度
-TARGET = (121.6, 123.4, 24.4, 26.2)     # (west, east, south, north)
-STEP = 0.02                              # ~2km 高解析
-DATE1, DATE2 = "2021-03-01", "2021-03-16"
-MAX_SCENES = 40
+# 目標區與解析度（可自由調整：擴大區域/改日期窗即可換不同漁場與季節）
+TARGET = (119.8, 123.4, 22.0, 26.4)     # (west, east, south, north) 北+東+南；西界受 Sentinel-3 footprint 限制
+STEP = 0.04                              # ~4km 高解析
+DATE1, DATE2 = "2021-02-10", "2021-04-20"   # 早春窗（與春季出現點配對）
+SEASON_MONTHS = {2, 3, 4}                # 與日期窗一致，用於篩選出現點季節
+MAX_SCENES = 60
+MIN_PRESENCE_SDM = 20                    # 高解析 SDM 驗證所需最少（區內）出現點(去重至網格)
 
 VAR = {"sst": ("SLNT_S3_SST", (8.0, 33.0)),    # (ClassCode, 合理值域)
        "chl": ("GOCI_CHL", (0.02, 35.0))}
-# 展示魚種(暖水表層 + 底棲)；皆用適溫窗，餌料因子用葉綠素
+# 機制式(適溫×餌料)展示魚種
 SHOW_SPECIES = ["白帶魚", "白腹鯖(花飛)", "鎖管(透抽)", "鬼頭刀"]
 
 
@@ -92,6 +98,101 @@ def thermal(sst, sp):
     return t
 
 
+def fit_hires_sdm(lats, lons, sst, chl, front):
+    """把高解析環境(SST、log葉綠素、鋒面)與區內季節出現點配對，
+    擬合 presence-only 高斯包絡 SDM，交叉驗證 AUC，回傳各魚種棲地適合度網格與報表。"""
+    chl_log = np.log10(np.where(chl > 0, chl, np.nan))
+    layers = [sst, chl_log, front]
+    valid = np.isfinite(sst) & np.isfinite(chl_log) & np.isfinite(front)
+    Z, stats = [], []
+    for L in layers:
+        m = float(np.nanmean(L[valid])); s = float(np.nanstd(L[valid])) or 1.0
+        stats.append((m, s)); Z.append((L - m) / s)
+    Zs = np.stack(Z, axis=2)                       # Ny×Nx×3
+    Ny, Nx = sst.shape
+    north, west = lats[0], lons[0]
+
+    # 用區內所有出現點(去重至網格)；衛星合成場為代表性(早春)環境，
+    # 季節一致性為已知限制(出現點橫跨年代/季節)，於報表與頁面說明。
+    occ = defaultdict(set)
+    with open(OCC_CSV, encoding="utf-8-sig") as fh:
+        for r in csv.DictReader(fh):
+            la, lo = float(r["decimalLatitude"]), float(r["decimalLongitude"])
+            iy = int(round((north - la) / STEP)); ix = int(round((lo - west) / STEP))
+            if 0 <= iy < Ny and 0 <= ix < Nx and valid[iy, ix]:
+                occ[r["target_zh"]].add((iy, ix))
+
+    bg_idx = np.argwhere(valid)
+    rng = np.random.default_rng(42)
+    bg = bg_idx[rng.choice(len(bg_idx), min(2000, len(bg_idx)), replace=False)]
+    bgX = Zs[bg[:, 0], bg[:, 1]]
+
+    def envelope(P):
+        mu = P.mean(axis=0)
+        cov = np.cov(P, rowvar=False) + np.eye(3) * 1e-3
+        return mu, np.linalg.inv(cov)
+
+    def score(X, mu, ci):
+        d = X - mu
+        return np.exp(-0.5 * np.einsum("ij,jk,ik->i", d, ci, d))
+
+    def auc(pos, neg):
+        allv = np.concatenate([pos, neg]); order = allv.argsort()
+        ranks = np.empty(len(allv)); ranks[order] = np.arange(1, len(allv) + 1)
+        u = ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2
+        return round(float(u / (len(pos) * len(neg))), 3)
+
+    results, report = {}, []
+    for sp, cells in sorted(occ.items(), key=lambda kv: len(kv[1]), reverse=True):
+        pc = np.array(sorted(cells))
+        if len(pc) < MIN_PRESENCE_SDM:
+            report.append((sp, len(pc), "skip-不足", ""))
+            continue
+        P = Zs[pc[:, 0], pc[:, 1]]
+        # (1) 隨機 70/30 重複 5 次交叉驗證(偏樂觀，受空間自相關影響)
+        aucs = []
+        for k in range(5):
+            idx = rng.permutation(len(P)); cut = int(len(P) * 0.7)
+            tr, te = P[idx[:cut]], P[idx[cut:]]
+            if len(te) < 5:
+                continue
+            mu, ci = envelope(tr)
+            aucs.append(auc(score(te, mu, ci), score(bgX, mu, ci)))
+        cv = round(float(np.mean(aucs)), 3) if aucs else float("nan")
+
+        # (2) 空間分塊交叉驗證(leave-one-block-out, 0.6°方塊)：誠實值，降低空間自相關高估
+        BS = 0.6
+        blk = defaultdict(list)
+        for r, (iy, ix) in enumerate(pc):
+            blk[(int(lats[iy] // BS), int(lons[ix] // BS))].append(r)
+        saucs = []
+        if len(blk) >= 3:
+            for hk, te_idx in blk.items():
+                tr_idx = [r for r in range(len(pc)) if r not in set(te_idx)]
+                if len(te_idx) < 3 or len(tr_idx) < 10:
+                    continue
+                mu, ci = envelope(P[tr_idx])
+                saucs.append(auc(score(P[te_idx], mu, ci), score(bgX, mu, ci)))
+        scv = round(float(np.mean(saucs)), 3) if saucs else float("nan")
+
+        mu, ci = envelope(P)                       # 全資料擬合輸出網格
+        s2d = np.full((Ny, Nx), np.nan, dtype=np.float32)
+        vy, vx = np.where(valid)
+        sc = score(Zs[vy, vx], mu, ci)
+        sc = sc / sc.max() * 100.0
+        s2d[vy, vx] = sc
+        results[sp] = s2d
+        report.append((sp, len(pc), cv, scv))
+        print(f"  SDM species#{len(results)}: presence={len(pc)} randomCV={cv} spatialCV={scv}")
+
+    with open(SDM_REPORT, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["魚種", "區內出現點", "隨機CV-AUC", "空間分塊CV-AUC"])
+        w.writerows(report)
+    return results, [(sp, n, cv, scv) for sp, n, cv, scv in report
+                     if not isinstance(cv, str)]
+
+
 def main():
     month = int(DATE1[5:7])
     la_s, lo_s, sst = composite("sst")
@@ -115,38 +216,55 @@ def main():
         s = 100.0 * th * (0.6 + 0.4 * chl_norm)        # 適溫 × 餌料因子
         suit[nm] = s
 
-    cells = []
-    for iy in range(len(la_s)):
-        for ix in range(len(lo_s)):
-            v = sst[iy, ix]
-            if np.isnan(v):
-                continue
-            cell = {"lat": round(float(la_s[iy]), 3), "lon": round(float(lo_s[ix]), 3),
-                    "sst": round(float(v), 2),
-                    "chl": None if np.isnan(chl[iy, ix]) else round(float(chl[iy, ix]), 3),
-                    "front": None if np.isnan(front[iy, ix]) else round(float(front[iy, ix]), 3),
-                    "s": {nm: (None if np.isnan(suit[nm][iy, ix])
-                               else round(float(suit[nm][iy, ix]), 1)) for nm in suit}}
-            cells.append(cell)
+    # 資料驅動高解析 SDM（出現點 × 高解析環境，交叉驗證）
+    sdm_grids, sdm_rep = fit_hires_sdm(la_s, lo_s, sst, chl, front)
+    for nm, g in sdm_grids.items():
+        suit["SDM:" + nm] = g
+
+    # 欄位式(columnar)輸出：避免每格重複欄名，大幅縮小體積
+    ys, xs = np.where(np.isfinite(sst))
+    lat = [round(float(la_s[y]), 3) for y in ys]
+    lon = [round(float(lo_s[x]), 3) for x in xs]
+
+    def col(arr2d, nd):
+        return [None if np.isnan(arr2d[y, x]) else round(float(arr2d[y, x]), nd)
+                for y, x in zip(ys, xs)]
+
+    def icol(arr2d):  # 適合度取整數,進一步縮小
+        return [None if np.isnan(arr2d[y, x]) else int(round(arr2d[y, x]))
+                for y, x in zip(ys, xs)]
+
+    layers = {"sst": col(sst, 2), "chl": col(chl, 3), "front": col(front, 3)}
+    thermal_sp = [nm for nm in SHOW_SPECIES if nm in suit]
+    sdm_sp = [sp for sp, n, cv, scv in sdm_rep]
+    for nm in thermal_sp:
+        layers["T:" + nm] = icol(suit[nm])
+    for nm in sdm_sp:
+        layers["S:" + nm] = icol(suit["SDM:" + nm])
 
     meta = {"bbox": TARGET, "step": STEP, "window": [DATE1, DATE2],
-            "species": list(suit), "n_sst_valid": int(np.isfinite(sst).sum()),
+            "thermal": thermal_sp,
+            "sdm": [{"name": sp, "n": n,
+                     "auc": (None if scv != scv else scv),      # 空間CV(誠實值)
+                     "rauc": (None if cv != cv else cv)}        # 隨機CV(參考)
+                    for sp, n, cv, scv in sdm_rep],
+            "n_sst_valid": int(len(lat)),
             "source": "NODASS 開放衛星影像 (Sentinel-3 SST, GOCI 葉綠素)"}
+    payload = {"meta": meta, "lat": lat, "lon": lon, "layers": layers}
     OUT_JSON.parent.mkdir(exist_ok=True)
-    OUT_JSON.write_text(json.dumps({"meta": meta, "cells": cells},
-                                   ensure_ascii=False, separators=(",", ":")),
+    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
                         encoding="utf-8")
-    print(f"cells={len(cells)}  sst valid={meta['n_sst_valid']}  "
-          f"sst range={np.nanmin(sst):.1f}-{np.nanmax(sst):.1f}  -> {OUT_JSON.name}")
-    write_html(meta, cells)
+    print(f"cells={len(lat)}  sst range={np.nanmin(sst):.1f}-{np.nanmax(sst):.1f} "
+          f"layers={len(layers)} -> {OUT_JSON.name}")
+    write_html(payload)
 
 
-def write_html(meta, cells):
+def write_html(payload):
     html = (HTML.replace("__CSS__", SHARED_CSS)
                 .replace("__NAV__", nav_html("hires"))
                 .replace("__COAST__", load_coast())
-                .replace("__DATA__", json.dumps({"meta": meta, "cells": cells},
-                                                ensure_ascii=False, separators=(",", ":")))
+                .replace("__DATA__", json.dumps(payload, ensure_ascii=False,
+                                                separators=(",", ":")))
                 .replace("__TS__", datetime.now().strftime("%Y-%m-%d %H:%M")))
     OUT_HTML.parent.mkdir(exist_ok=True)
     OUT_HTML.write_text(html, encoding="utf-8")
@@ -164,8 +282,16 @@ HTML = r"""<!DOCTYPE html>
 <div class="sub">資料來源：NODASS 開放衛星影像 API(Sentinel-3 海溫、GOCI 葉綠素)｜小區高解析合成｜產生 __TS__</div></header>
 __NAV__
 <div class="ctrl">
-  <label for="layer">圖層：</label>
-  <select id="layer"></select>
+  <strong style="color:#cdd9e5;font-size:0.85rem;">圖層</strong>
+  <span class="seg" id="baseSeg"></span>
+</div>
+<div class="ctrl" id="spRow" style="display:none;align-items:flex-start;">
+  <strong style="color:#cdd9e5;font-size:0.85rem;padding-top:6px;">魚種<br/><span class="note">可複選</span></strong>
+  <span class="chips" id="spChips"></span>
+  <span style="display:flex;flex-direction:column;gap:4px;">
+    <button class="toolbtn" id="spAll">全選</button>
+    <button class="toolbtn" id="spNone">清除</button>
+  </span>
   <span class="note" id="hint"></span>
 </div>
 <div class="wrap">
@@ -178,58 +304,98 @@ __NAV__
 </div>
 <div class="wrap"><div class="panel" style="flex:1;"><div class="note">
   <b>方法</b>：以圖例色帶將開放衛星影像數位化為數值，套陸地遮罩與合理值域，跨多場景平均以填補掃描帶/雲縫。
-  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>棲地適合度</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
-  <b>意義</b>：解析度 ~2km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。
-  漁獲量/CPUE 標籤尚在尋找，取得後可校正為真正的魚群量預測。對齊 SDG 14。
+  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>適溫代理</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
+  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館/GBIF)與高解析環境(SST、log葉綠素、鋒面)配對，
+  擬合 presence-only 高斯包絡模型。<b>準確度以空間分塊交叉驗證(leave-one-block-out, 0.6°)</b>呈現於魚種標籤，
+  此值已抑制空間自相關高估，較隨機 70/30 CV 誠實(兩者皆記於 sdm/hires_sdm_report.csv)。<br/>
+  <b>意義</b>：解析度 ~4km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。<br/>
+  <b>限制</b>：衛星合成為早春代表場，出現點橫跨年代/季節(季節一致性為已知限制)；presence-only、無漁獲量。
+  漁獲量/CPUE 標籤到位後可校正為真正的魚群量預測。對齊 SDG 14。
 </div></div></div>
 <script>
 const DATA=__DATA__, COAST=__COAST__;
-const cells=DATA.cells, meta=DATA.meta;
+const meta=DATA.meta, LAT=DATA.lat, LON=DATA.lon, L_=DATA.layers, STEP=meta.step, N=LAT.length;
 const map=L.map('map').setView([(meta.bbox[2]+meta.bbox[3])/2,(meta.bbox[0]+meta.bbox[1])/2],9);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(map);
 map.createPane('land'); map.getPane('land').style.zIndex='450';
 L.geoJSON(COAST,{pane:'land',interactive:false,style:{fillColor:'#26344d',fillOpacity:1,color:'#6f8db3',weight:1}}).addTo(map);
-const STEP=meta.step, gl=L.layerGroup().addTo(map);
+const gridRenderer=L.canvas({padding:0.5}), gl=L.layerGroup().addTo(map);
 
 function jet(t){t=Math.max(0,Math.min(1,t));const r=Math.max(0,Math.min(1,1.5-Math.abs(4*t-3))),
   g=Math.max(0,Math.min(1,1.5-Math.abs(4*t-2))),b=Math.max(0,Math.min(1,1.5-Math.abs(4*t-1)));
   return `rgb(${(r*255)|0},${(g*255)|0},${(b*255)|0})`;}
-function val(c,layer){if(layer==='sst')return c.sst;if(layer==='chl')return c.chl;if(layer==='front')return c.front;return c.s[layer];}
+function rect(i,color){L.rectangle([[LAT[i]-STEP/2,LON[i]-STEP/2],[LAT[i]+STEP/2,LON[i]+STEP/2]],
+  {stroke:false,fillColor:color,fillOpacity:0.72,renderer:gridRenderer}).addTo(gl);}
+const GRAD='linear-gradient(90deg,rgb(0,0,255),rgb(0,255,255),rgb(0,255,0),rgb(255,255,0),rgb(255,0,0))';
+function setLegend(t){document.getElementById('legend').innerHTML=t+
+  `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${GRAD}"></div>低 → 高`;}
+function setKpi(a){document.getElementById('kpi').innerHTML=a.map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join('');}
 
-const layers=[['sst','海溫 SST (°C)',[18,28]],['chl','葉綠素 (mg/m³,log)',[-1.3,0.5]],['front','海溫鋒面強度',[0,1.2]]];
-meta.species.forEach(sp=>layers.push([sp,'棲地適合度：'+sp,[0,100]]));
-const sel=document.getElementById('layer');
-layers.forEach(([k,t])=>{const o=document.createElement('option');o.value=k;o.textContent=t;sel.appendChild(o);});
-sel.onchange=()=>draw(sel.value);
+// 底圖圖層(單選)：環境 + 棲地適合度
+const BASE=[['sst','海溫 SST (°C)',18,28,'lin'],['chl','葉綠素 (mg/m³)',-1.3,0.5,'log'],
+  ['front','海溫鋒面強度',0,1.2,'lin'],['habitat','棲地適合度(選魚種)',0,100,'lin']];
+// 魚種圖層鍵：適溫代理 T:、資料驅動 SDM S:
+const SP=[];
+meta.thermal.forEach(nm=>SP.push(['T:'+nm,nm+'(適溫)']));
+(meta.sdm||[]).forEach(x=>SP.push(['S:'+x.name,`${x.name}(SDM 空間AUC ${x.auc==null?'—':x.auc})`]));
 
-function draw(layer){gl.clearLayers();
-  const meta3=layers.find(l=>l[0]===layer); let[lo,hi]=meta3[2];
+let baseKey='sst'; const checked=new Set((meta.sdm||[]).slice(0,1).map(x=>'S:'+x.name));
+
+// 建分段按鈕
+const seg=document.getElementById('baseSeg');
+BASE.forEach(([k,label])=>{const b=document.createElement('button');b.textContent=label;
+  b.dataset.k=k; b.onclick=()=>{baseKey=k; [...seg.children].forEach(c=>c.classList.toggle('on',c.dataset.k===k));
+    document.getElementById('spRow').style.display=(k==='habitat')?'flex':'none'; draw();};
+  seg.appendChild(b);});
+seg.firstChild.classList.add('on');
+// 建魚種勾選晶片
+const chips=document.getElementById('spChips');
+SP.forEach(([k,label])=>{const lab=document.createElement('label');lab.dataset.k=k;
+  lab.innerHTML=`<input type="checkbox" ${checked.has(k)?'checked':''}/> ${label}`;
+  lab.classList.toggle('on',checked.has(k));
+  lab.querySelector('input').onchange=e=>{e.target.checked?checked.add(k):checked.delete(k);
+    lab.classList.toggle('on',e.target.checked); draw();};
+  chips.appendChild(lab);});
+document.getElementById('spAll').onclick=()=>{checked.clear();SP.forEach(([k])=>checked.add(k));syncChips();draw();};
+document.getElementById('spNone').onclick=()=>{checked.clear();syncChips();draw();};
+function syncChips(){[...chips.children].forEach(l=>{const on=checked.has(l.dataset.k);
+  l.classList.toggle('on',on);l.querySelector('input').checked=on;});}
+
+function draw(){gl.clearLayers();
+  if(baseKey==='habitat'){drawHabitat();return;}
+  const m=BASE.find(b=>b[0]===baseKey),lo=m[2],hi=m[3],log=m[4]==='log',arr=L_[baseKey];
   let n=0,sum=0,mx=-1e9;
-  cells.forEach(c=>{let v=val(c,layer); if(v==null)return;
-    let t; if(layer==='chl'){t=(Math.log10(Math.max(0.01,v))-lo)/(hi-lo);}else{t=(v-lo)/(hi-lo);}
-    L.rectangle([[c.lat-STEP/2,c.lon-STEP/2],[c.lat+STEP/2,c.lon+STEP/2]],
-      {stroke:false,fillColor:jet(t),fillOpacity:0.72}).addTo(gl);
-    n++;sum+=v;mx=Math.max(mx,v);});
-  document.getElementById('kpi').innerHTML=
-    `<div>網格數<b>${n}</b></div><div>解析度<b>~2km</b></div>`+
-    `<div>平均<b>${(sum/n).toFixed(2)}</b></div><div>最高<b>${mx.toFixed(2)}</b></div>`;
-  const grad='linear-gradient(90deg,rgb(0,0,255),rgb(0,255,255),rgb(0,255,0),rgb(255,255,0),rgb(255,0,0))';
-  document.getElementById('legend').innerHTML=meta3[1]+
-    `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${grad}"></div>低 → 高`;
-  document.getElementById('hint').textContent=
-    layer.length>3&&!['sst','chl'].includes(layer)?'金黃/紅為棲地適合度高之小區熱區':'';
+  for(let i=0;i<N;i++){let v=arr[i]; if(v==null)continue;
+    let t=log?(Math.log10(Math.max(0.01,v))-lo)/(hi-lo):(v-lo)/(hi-lo);
+    rect(i,jet(t)); n++;sum+=v;mx=Math.max(mx,v);}
+  setKpi([['網格數',n],['解析度','~4km'],['平均',(sum/n).toFixed(2)],['最高',mx.toFixed(2)]]);
+  setLegend(m[1]); document.getElementById('hint').textContent='';
 }
-map.on('click',e=>{const la=e.latlng.lat,lo=e.latlng.lng;let best=null,bd=1e9;
-  cells.forEach(c=>{const d=Math.abs(c.lat-la)+Math.abs(c.lon-lo);if(d<bd){bd=d;best=c;}});
+function drawHabitat(){const keys=[...checked];
+  if(!keys.length){setKpi([['提示','請勾選魚種']]);setLegend('棲地適合度');return;}
+  let n=0,sum=0,mx=0;
+  for(let i=0;i<N;i++){let best=null;
+    for(const k of keys){const v=L_[k][i]; if(v!=null&&(best==null||v>best))best=v;}
+    if(best==null)continue; rect(i,jet(best/100)); n++;sum+=best;mx=Math.max(mx,best);}
+  setKpi([['網格數',n],['選取魚種',keys.length],['平均',(sum/n).toFixed(0)],['最高',mx]]);
+  setLegend(keys.length>1?'最適魚種棲地(複選取最大值)':'棲地適合度');
+  document.getElementById('hint').textContent=keys.length>1?'每格顯示所選魚種中最高的適合度':'';
+}
+map.on('click',e=>{const la=e.latlng.lat,lo=e.latlng.lng;let bi=-1,bd=1e9;
+  for(let i=0;i<N;i++){const d=Math.abs(LAT[i]-la)+Math.abs(LON[i]-lo);if(d<bd){bd=d;bi=i;}}
   let h=`座標 ${la.toFixed(3)}, ${lo.toFixed(3)}`;
-  if(best&&bd<=STEP*2){h+=`<br/>SST ${best.sst}°C`+(best.chl!=null?`　葉綠素 ${best.chl} mg/m³`:'')+
-    (best.front!=null?`<br/>鋒面強度 ${best.front}`:'');
-    Object.entries(best.s).forEach(([k,v])=>{if(v!=null)h+=`<br/>${k} 適合度 ${v}`;});}
-  else h+='<br/>此處無有效衛星數值(雲/掃描帶外)';
+  if(bi>=0&&bd<=STEP*2&&L_.sst[bi]!=null){
+    h+=`<br/>SST ${L_.sst[bi]}°C`+(L_.chl[bi]!=null?`　葉綠素 ${L_.chl[bi]} mg/m³`:'')+
+       (L_.front[bi]!=null?`<br/>鋒面 ${L_.front[bi]}`:'');
+    const ks=baseKey==='habitat'&&checked.size?[...checked]:SP.map(s=>s[0]);
+    const lines=ks.map(k=>{const v=L_[k][bi];return v==null?null:`${k.slice(2)}${k[0]==='S'?'(SDM)':''} ${v}`;}).filter(Boolean);
+    if(lines.length)h+='<br/>適合度：'+lines.slice(0,8).join('、');
+  } else h+='<br/>此處無有效衛星數值(雲/掃描帶外)';
   L.popup().setLatLng(e.latlng).setContent(h).openOn(map);});
 document.getElementById('note').innerHTML=
-  `合成日期窗：${meta.window[0]} ~ ${meta.window[1]}<br/>有效 SST 網格：${meta.n_sst_valid}<br/>來源：${meta.source}`;
-draw('sst');
+  `合成日期窗：${meta.window[0]} ~ ${meta.window[1]}<br/>有效 SST 網格：${meta.n_sst_valid}<br/>`+
+  `可建模魚種(SDM)：${(meta.sdm||[]).length} 種｜來源：${meta.source}`;
+draw();
 </script></body></html>
 """
 

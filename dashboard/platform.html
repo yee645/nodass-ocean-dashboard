@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NODASS 漁場棲地平台（過去·現在·未來）</title>
+<style>
+  *{box-sizing:border-box;}
+  html{font-size:clamp(13px,0.55vw + 11px,17px);}
+  body{margin:0;font-family:"Microsoft JhengHei","Segoe UI",sans-serif;background:#0e1726;color:#e8eef7;}
+  header{padding:clamp(10px,1.4vw,16px) clamp(12px,2vw,24px);background:#15233b;border-bottom:1px solid #24344f;}
+  header h1{margin:0;font-size:clamp(1.05rem,2.2vw,1.4rem);}
+  header .sub{font-size:clamp(0.72rem,1.1vw,0.85rem);color:#9fb3c8;margin-top:4px;}
+  .tabs{display:flex;gap:6px;padding:8px clamp(12px,2vw,24px) 0;background:#15233b;border-bottom:1px solid #24344f;flex-wrap:wrap;}
+  .tabs a{padding:8px 16px;font-size:clamp(0.78rem,1.2vw,0.92rem);color:#9fb3c8;text-decoration:none;border-radius:8px 8px 0 0;border:1px solid transparent;}
+  .tabs a:hover{color:#e8eef7;background:#1c2c46;}
+  .tabs a.active{color:#fff;background:#1c2c46;border-color:#2f456b;border-bottom-color:#1c2c46;font-weight:600;}
+  .ctrl{padding:8px clamp(12px,2vw,24px);background:#11203a;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid #24344f;}
+  .ctrl label{font-size:0.82rem;color:#9fb3c8;}
+  .ctrl select{background:#1c2c46;color:#e8eef7;border:1px solid #2f456b;border-radius:6px;padding:6px 10px;font-size:0.9rem;}
+  .ctrl input[type=checkbox]{transform:scale(1.15);margin-right:4px;vertical-align:middle;}
+  .wrap{display:flex;flex-wrap:wrap;gap:12px;padding:12px;}
+  .panel{background:#15233b;border:1px solid #24344f;border-radius:8px;padding:12px;}
+  /* 地圖獨佔整列 100% 寬，資訊面板於其下方以自適應網格排列 */
+  #map{height:clamp(400px,64vh,640px);flex:1 1 100%;width:100%;min-width:280px;border-radius:8px;}
+  .side{flex:1 1 100%;width:100%;display:grid;
+        grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;}
+  table{width:100%;border-collapse:collapse;font-size:0.82rem;}
+  th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #24344f;}
+  th{color:#9fb3c8;font-weight:600;}
+  tr{cursor:pointer;} tr:hover{background:#1c2c46;}
+  .badge{padding:2px 8px;border-radius:10px;color:#fff;font-size:0.78rem;}
+  .legend{font-size:0.78rem;color:#9fb3c8;}
+  .legend span{display:inline-block;width:11px;height:11px;border-radius:50%;margin:0 4px 0 10px;vertical-align:middle;}
+  .kpi{display:flex;gap:10px;flex-wrap:wrap;}
+  .kpi div{background:#1c2c46;border-radius:6px;padding:8px 12px;font-size:0.82rem;flex:1 1 auto;text-align:center;}
+  .kpi b{font-size:clamp(1rem,1.8vw,1.2rem);display:block;}
+  .note{font-size:0.78rem;color:#8aa0b8;line-height:1.6;}
+  h3{font-size:clamp(0.9rem,1.4vw,1rem);}
+  .chartbox{position:relative;height:200px;width:100%;}
+  canvas{background:#0e1726;border-radius:6px;}
+  .leaflet-container{background:#0a1a2e;}
+  /* 分段按鈕(單選):比下拉更直觀、可一眼看到所有選項 */
+  .seg{display:inline-flex;flex-wrap:wrap;gap:4px;}
+  .seg button{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:6px 12px;font-size:0.85rem;cursor:pointer;}
+  .seg button:hover{color:#e8eef7;}
+  .seg button.on{background:#2f6fed;color:#fff;border-color:#2f6fed;font-weight:600;}
+  /* 勾選晶片(複選):魚種多時以可捲動晶片清單呈現 */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:120px;overflow:auto;
+    padding:6px;background:#11203a;border:1px solid #24344f;border-radius:8px;}
+  .chips label{display:inline-flex;align-items:center;gap:5px;background:#1c2c46;
+    border:1px solid #2f456b;border-radius:14px;padding:4px 10px;font-size:0.82rem;
+    color:#cdd9e5;cursor:pointer;white-space:nowrap;}
+  .chips label.on{background:#13361f;border-color:#2e933c;color:#eafff0;}
+  .chips input{accent-color:#2e933c;}
+  .toolbtn{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
+    padding:5px 10px;font-size:0.8rem;cursor:pointer;}
+  .toolbtn:hover{color:#e8eef7;}
+  @media (max-width:760px){ .side{flex:1 1 100%;} #map{flex:1 1 100%;} }
+
+  .pframe{width:100%;height:clamp(540px,80vh,960px);border:1px solid #24344f;border-radius:8px;
+    background:#0e1726;}
+  .modehint{font-size:0.82rem;color:#9fb3c8;}
+</style></head><body>
+<header><h1>NODASS 漁場棲地平台（過去 · 現在 · 未來）</h1>
+<div class="sub">出航前參考：在過去/現在/未來之間切換，綜覽海象、環境與多魚種棲地潛勢｜產生 2026-06-02 02:00</div></header>
+<div class="tabs"><a class="" target="_top" href="index.html">極端浪況預警</a><a class="active" target="_top" href="platform.html">漁場棲地平台（過去·現在·未來）</a></div>
+<div class="ctrl">
+  <strong style="color:#cdd9e5;font-size:0.85rem;">時段</strong>
+  <span class="seg" id="seg"></span>
+  <span class="modehint" id="hint"></span>
+</div>
+<div style="padding:0 12px 12px;">
+  <iframe id="pf" class="pframe" title="漁場棲地"></iframe>
+</div>
+<div class="wrap"><div class="panel" style="flex:1;"><div class="note">
+  <b>平台定位</b>：本平台整合「現在(即時浮標)、過去(高解析衛星＋資料驅動 SDM)、未來(中央氣象署 OCM 預報)」三種視角，
+  供漁民出航前綜覽海象、海溫鋒面、葉綠素與多魚種棲地潛勢、制定航道與作業計畫之<b>參考</b>。<br/>
+  <b>可靠度</b>：海象與環境資訊可作參考(出海安全仍以中央氣象署海象/漁業氣象、海巡警報為準)；
+  魚群為<b>環境棲地潛勢</b>(非漁獲保證)，各頁標示驗證 AUC 與資料來源。<br/>
+  <b>資料來源</b>：NODASS 開放浮標/衛星影像、中央氣象署 OCM 海流模式、TFRIN 漁場環境、TaiBIF/GBIF 物種出現。對齊 SDG 14。
+</div></div></div>
+<script>
+const MODES=[
+  ['hires.html','過去 · 高解析衛星','衛星 ~4km 海溫/葉綠素/鋒面與資料驅動 SDM（空間交叉驗證 AUC）'],
+  ['fishing.html','現在 · 即時浮標','即時浮標海溫與魚種棲地、魚群熱區與漂移、近兩日時間軸回放'],
+  ['forecast.html','未來 · CWA 預報','氣象署 OCM 未來數日海溫/海流 + 葉綠素，多魚種棲地與海流向量'],
+];
+const seg=document.getElementById('seg'), pf=document.getElementById('pf'), hint=document.getElementById('hint');
+function setMode(i){pf.src=MODES[i][0]; hint.textContent=MODES[i][2];
+  [...seg.children].forEach((c,j)=>c.classList.toggle('on',j===i));}
+MODES.forEach(([src,label],i)=>{const b=document.createElement('button');b.textContent=label;
+  b.onclick=()=>setMode(i); seg.appendChild(b);});
+setMode(1);   // 預設「現在」
+</script>
+</body></html>
