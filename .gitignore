@@ -1,5 +1,7 @@
 # 機密憑證，絕不上傳
 .nodass_token
+.cwa_token
+.gfw_token
 
 # 大型爬取／逆向分析暫存檔（非專案必要）
 gis_app.js
@@ -13,6 +15,7 @@ nodass_data_root.html
 
 # Claude Code 內部檔
 .claude/
+.playwright-mcp/
 
 # 本地筆記與進度清單
 list.md
