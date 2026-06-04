@@ -22,7 +22,8 @@ import numpy as np
 
 import fetch_satellite as FS
 import sat_digitize as SD
-from dashboard_common import SHARED_CSS, load_coast, nav_html, on_land
+from dashboard_common import (INFO_MODAL_JS, SHARED_CSS, info_modal, load_coast,
+                              nav_html, on_land)
 from species_traits import SPECIES
 
 BASE = Path(__file__).resolve().parent
@@ -86,6 +87,26 @@ def sst_front(sst):
     f = np.hypot(gx, gy)
     f[np.isnan(sst)] = np.nan
     return f
+
+
+def confidence_for_cells(cell_lats, cell_lons, scale_deg: float = 0.3):
+    """資料信心(P3)：每個輸出格點到最近物種出現點的距離 → exp(-(d/scale)^2)。
+    出現點密集處(模型有實證支持)信心高；遠離資料、模型外推處信心低。
+    單一來源函式：供 main() 與信心注入器共用。回傳與 cell 等長的 0–1 list(無資料為 None)。"""
+    pts = []
+    try:
+        with open(OCC_CSV, encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                pts.append((float(r["decimalLatitude"]), float(r["decimalLongitude"])))
+    except FileNotFoundError:
+        return [None] * len(cell_lats)
+    if not pts:
+        return [None] * len(cell_lats)
+    from scipy.spatial import cKDTree
+    tree = cKDTree(np.array(pts))
+    d, _ = tree.query(np.column_stack([cell_lats, cell_lons]), k=1)
+    conf = np.exp(-(d / scale_deg) ** 2)
+    return [round(float(x), 3) for x in conf]
 
 
 def thermal(sst, sp):
@@ -235,6 +256,7 @@ def main():
                 for y, x in zip(ys, xs)]
 
     layers = {"sst": col(sst, 2), "chl": col(chl, 3), "front": col(front, 3)}
+    layers["conf"] = confidence_for_cells(lat, lon)        # P3 資料信心(出現點支持)
     thermal_sp = [nm for nm in SHOW_SPECIES if nm in suit]
     sdm_sp = [sp for sp, n, cv, scv in sdm_rep]
     for nm in thermal_sp:
@@ -249,6 +271,7 @@ def main():
                      "rauc": (None if cv != cv else cv)}        # 隨機CV(參考)
                     for sp, n, cv, scv in sdm_rep],
             "n_sst_valid": int(len(lat)),
+            "has_conf": any(c is not None for c in layers["conf"]),
             "source": "NODASS 開放衛星影像 (Sentinel-3 SST, GOCI 葉綠素)"}
     payload = {"meta": meta, "lat": lat, "lon": lon, "layers": layers}
     OUT_JSON.parent.mkdir(exist_ok=True)
@@ -259,10 +282,29 @@ def main():
     write_html(payload)
 
 
+MODAL_BODY = """
+  <div class="note">
+  <b>方法</b>：以圖例色帶將開放衛星影像數位化為數值，套陸地遮罩與合理值域，跨多場景平均以填補掃描帶/雲縫。
+  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>適溫代理</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/><br/>
+  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館/GBIF)與高解析環境(SST、log葉綠素、鋒面)配對，
+  擬合 presence-only 高斯包絡模型。<b>準確度以空間分塊交叉驗證(leave-one-block-out, 0.6°)</b>呈現於魚種標籤，
+  此值已抑制空間自相關高估，較隨機 70/30 CV 誠實(兩者皆記於 sdm/hires_sdm_report.csv)。<br/><br/>
+  <b>資料信心(P3)</b>：每格依到最近物種出現點的距離換算 0–1 信心(出現點密集處信心高、遠離資料處模型外推信心低)；
+  可單獨檢視「資料信心」圖層，或勾「低信心淡化」把信心 &lt;0.3 的格子淡化，提醒該處棲地預測證據較弱。<br/><br/>
+  <b>意義</b>：解析度 ~4km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。<br/>
+  <b>限制</b>：衛星合成為早春代表場，出現點橫跨年代/季節(季節一致性為已知限制)；presence-only、無漁獲量。
+  漁獲量/CPUE 標籤到位後可校正為真正的魚群量預測。對齊 SDG 14。
+  </div>
+  <div class="note" id="note" style="margin-top:10px;border-top:1px solid #24344f;padding-top:10px;"></div>
+"""
+
+
 def write_html(payload):
     html = (HTML.replace("__CSS__", SHARED_CSS)
                 .replace("__NAV__", nav_html("hires"))
                 .replace("__COAST__", load_coast())
+                .replace("__MODAL__", info_modal("關於本頁與資料說明", MODAL_BODY))
+                .replace("__MODALJS__", INFO_MODAL_JS)
                 .replace("__DATA__", json.dumps(payload, ensure_ascii=False,
                                                 separators=(",", ":")))
                 .replace("__TS__", datetime.now().strftime("%Y-%m-%d %H:%M")))
@@ -272,50 +314,55 @@ def write_html(payload):
 
 
 HTML = r"""<!DOCTYPE html>
-<html lang="zh-Hant"><head>
+<html lang="zh-Hant" class="cwa"><head>
 <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>NODASS 高解析小區漁場棲地</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>__CSS__</style></head><body>
-<header><h1>NODASS 高解析小區漁場棲地預測(衛星 ~2km)</h1>
-<div class="sub">資料來源：NODASS 開放衛星影像 API(Sentinel-3 海溫、GOCI 葉綠素)｜小區高解析合成｜產生 __TS__</div></header>
-__NAV__
-<div class="ctrl">
-  <strong style="color:#cdd9e5;font-size:0.85rem;">圖層</strong>
-  <span class="seg" id="baseSeg"></span>
-</div>
-<div class="ctrl" id="spRow" style="display:none;align-items:flex-start;">
-  <strong style="color:#cdd9e5;font-size:0.85rem;padding-top:6px;">魚種<br/><span class="note">可複選</span></strong>
-  <span class="chips" id="spChips"></span>
-  <span style="display:flex;flex-direction:column;gap:4px;">
-    <button class="toolbtn" id="spAll">全選</button>
-    <button class="toolbtn" id="spNone">清除</button>
-  </span>
-  <span class="note" id="hint"></span>
-</div>
-<div class="wrap">
-  <div id="map"></div>
-  <div class="side">
-    <div class="panel"><div class="kpi" id="kpi"></div>
-      <div class="legend" id="legend" style="margin-top:8px;"></div></div>
-    <div class="panel"><div class="note" id="note"></div></div>
+<style>__CSS__</style>
+<script>if(window.top!==window.self)document.documentElement.classList.add('embedded');</script>
+</head><body>
+<button class="panel-reopen" id="leftReopen" title="開啟資訊" aria-label="開啟資訊">&#9776;</button>
+<div class="leftpanel" id="leftPanel">
+  <div class="lpane-head">
+    <div class="lpane-title">NODASS 高解析小區漁場棲地預測（衛星 ~2km）</div>
+    <button class="lpane-x" id="leftCollapse" title="收合" aria-label="收合">&times;</button>
   </div>
+  <div class="lpane-sub">NODASS 開放衛星影像 API(Sentinel-3 海溫、GOCI 葉綠素)｜小區高解析合成｜產生 __TS__</div>
+  __NAV__
 </div>
-<div class="wrap"><div class="panel" style="flex:1;"><div class="note">
-  <b>方法</b>：以圖例色帶將開放衛星影像數位化為數值，套陸地遮罩與合理值域，跨多場景平均以填補掃描帶/雲縫。
-  <b>海溫鋒面</b>=溫度梯度量值(鋒面聚集餌料與魚群)。<b>適溫代理</b>=魚種適溫隸屬 × 葉綠素餌料因子。<br/>
-  <b>資料驅動 SDM</b>：把區內魚種出現點(TaiBIF/底拖/博物館/GBIF)與高解析環境(SST、log葉綠素、鋒面)配對，
-  擬合 presence-only 高斯包絡模型。<b>準確度以空間分塊交叉驗證(leave-one-block-out, 0.6°)</b>呈現於魚種標籤，
-  此值已抑制空間自相關高估，較隨機 70/30 CV 誠實(兩者皆記於 sdm/hires_sdm_report.csv)。<br/>
-  <b>意義</b>：解析度 ~4km，遠細於浮標 50–120km 內插，可呈現小漁場尺度的鋒面與棲地熱區。<br/>
-  <b>限制</b>：衛星合成為早春代表場，出現點橫跨年代/季節(季節一致性為已知限制)；presence-only、無漁獲量。
-  漁獲量/CPUE 標籤到位後可校正為真正的魚群量預測。對齊 SDG 14。
-</div></div></div>
+<div class="stage">
+  <div id="map"></div>
+  <div class="layerpanel" id="layerPanel">
+    <div class="lp-head" id="lpHead">
+      <h2>圖層</h2>
+      <button class="infobtn" id="infoBtn" title="說明" aria-label="說明">i</button>
+      <span class="lp-arrow">&#9662;</span>
+    </div>
+    <div class="lp-body">
+      <div><div class="lp-label">基礎圖層</div><span class="seg" id="baseSeg"></span></div>
+      <div class="lp-toggles">
+        <label title="信心 < 0.3 的格子(遠離出現點、模型外推)降透明度標示"><input type="checkbox" id="lowconf" />低信心淡化</label>
+      </div>
+      <div id="spRow" style="display:none;">
+        <div class="lp-label">魚種（可複選）</div>
+        <span class="chips" id="spChips"></span>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="toolbtn" id="spAll">全選</button><button class="toolbtn" id="spNone">清除</button></div>
+        <span class="note" id="hint"></span>
+      </div>
+      <div class="kpi" id="kpi"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+  <div class="floathint" id="dateHint">衛星合成日期窗（早春代表場）。詳細方法與限制請點右上 <b>i</b>。</div>
+</div>
+__MODAL__
 <script>
 const DATA=__DATA__, COAST=__COAST__;
 const meta=DATA.meta, LAT=DATA.lat, LON=DATA.lon, L_=DATA.layers, STEP=meta.step, N=LAT.length;
 const map=L.map('map').setView([(meta.bbox[2]+meta.bbox[3])/2,(meta.bbox[0]+meta.bbox[1])/2],9);
+map.zoomControl.setPosition('bottomright');   // 移開左上，避免被左側標題面板遮住
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:18}).addTo(map);
 map.createPane('land'); map.getPane('land').style.zIndex='450';
 L.geoJSON(COAST,{pane:'land',interactive:false,style:{fillColor:'#26344d',fillOpacity:1,color:'#6f8db3',weight:1}}).addTo(map);
@@ -324,21 +371,39 @@ const gridRenderer=L.canvas({padding:0.5}), gl=L.layerGroup().addTo(map);
 function jet(t){t=Math.max(0,Math.min(1,t));const r=Math.max(0,Math.min(1,1.5-Math.abs(4*t-3))),
   g=Math.max(0,Math.min(1,1.5-Math.abs(4*t-2))),b=Math.max(0,Math.min(1,1.5-Math.abs(4*t-1)));
   return `rgb(${(r*255)|0},${(g*255)|0},${(b*255)|0})`;}
-function rect(i,color){L.rectangle([[LAT[i]-STEP/2,LON[i]-STEP/2],[LAT[i]+STEP/2,LON[i]+STEP/2]],
-  {stroke:false,fillColor:color,fillOpacity:0.72,renderer:gridRenderer}).addTo(gl);}
-const GRAD='linear-gradient(90deg,rgb(0,0,255),rgb(0,255,255),rgb(0,255,0),rgb(255,255,0),rgb(255,0,0))';
-function setLegend(t){document.getElementById('legend').innerHTML=t+
-  `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${GRAD}"></div>低 → 高`;}
+function hx(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function stops(arr,t){t=Math.max(0,Math.min(1,t));for(let i=1;i<arr.length;i++){if(t<=arr[i][0]){
+  const a=arr[i-1],b=arr[i],f=(t-a[0])/((b[0]-a[0])||1),c1=hx(a[1]),c2=hx(b[1]);
+  return `rgb(${(c1[0]+(c2[0]-c1[0])*f)|0},${(c1[1]+(c2[1]-c1[1])*f)|0},${(c1[2]+(c2[2]-c1[2])*f)|0})`;}}
+  return arr[arr.length-1][1];}
+// 信心色階(紅低-黃中-綠高，RdYlGn)
+const CONFPAL=[[0,'#d73027'],[0.25,'#fc8d59'],[0.5,'#fee08b'],[0.75,'#d9ef8b'],[1,'#1a9850']];
+function confcol(t){return stops(CONFPAL,t);}
+const PAL={jet:jet,conf:confcol};
+function gradCss(name){const f=PAL[name]||jet;let s=[];for(let i=0;i<=10;i++)s.push(f(i/10)+' '+(i*10)+'%');
+  return 'linear-gradient(90deg,'+s.join(',')+')';}
+function rect(i,color,op){L.rectangle([[LAT[i]-STEP/2,LON[i]-STEP/2],[LAT[i]+STEP/2,LON[i]+STEP/2]],
+  {stroke:false,fillColor:color,fillOpacity:op==null?0.72:op,renderer:gridRenderer}).addTo(gl);}
+function setLegend(t,name){document.getElementById('legend').innerHTML=t+
+  `<div style="margin-top:4px;width:160px;height:12px;border-radius:3px;background:${gradCss(name||'jet')}"></div>低 → 高`;}
 function setKpi(a){document.getElementById('kpi').innerHTML=a.map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join('');}
 
-// 底圖圖層(單選)：環境 + 棲地適合度
-const BASE=[['sst','海溫 SST (°C)',18,28,'lin'],['chl','葉綠素 (mg/m³)',-1.3,0.5,'log'],
-  ['front','海溫鋒面強度',0,1.2,'lin'],['habitat','棲地適合度(選魚種)',0,100,'lin']];
+// 低信心淡化：信心 < 此門檻的格子降透明度，視覺標示模型外推/低支持區
+const CONF=L_.conf||null, LOWCONF=0.3;
+function cellOpacity(i){if(!CONF||!document.getElementById('lowconf').checked)return 0.72;
+  return (CONF[i]==null||CONF[i]<LOWCONF)?0.16:0.72;}
+
+// 底圖圖層(單選)：環境 + 信心 + 棲地適合度
+const BASE=[['sst','海溫 SST (°C)',18,28,'lin','jet'],['chl','葉綠素 (mg/m³)',-1.3,0.5,'log','jet'],
+  ['front','海溫鋒面強度',0,1.2,'lin','jet'],['conf','資料信心(出現點支持)',0,1,'lin','conf'],
+  ['habitat','棲地適合度(選魚種)',0,100,'lin','jet']];
 // 魚種圖層鍵：適溫代理 T:、資料驅動 SDM S:
 const SP=[];
 meta.thermal.forEach(nm=>SP.push(['T:'+nm,nm+'(適溫)']));
 (meta.sdm||[]).forEach(x=>SP.push(['S:'+x.name,`${x.name}(SDM 空間AUC ${x.auc==null?'—':x.auc})`]));
 
+if(!meta.has_conf){const ci=BASE.findIndex(b=>b[0]==='conf');if(ci>=0)BASE.splice(ci,1);
+  const lc=document.getElementById('lowconf');if(lc)lc.closest('label').style.display='none';}
 let baseKey='sst'; const checked=new Set((meta.sdm||[]).slice(0,1).map(x=>'S:'+x.name));
 
 // 建分段按鈕
@@ -354,39 +419,58 @@ SP.forEach(([k,label])=>{const lab=document.createElement('label');lab.dataset.k
   lab.innerHTML=`<input type="checkbox" ${checked.has(k)?'checked':''}/> ${label}`;
   lab.classList.toggle('on',checked.has(k));
   lab.querySelector('input').onchange=e=>{e.target.checked?checked.add(k):checked.delete(k);
-    lab.classList.toggle('on',e.target.checked); draw();};
+    lab.classList.toggle('on',e.target.checked); draw();__emitSp();};
   chips.appendChild(lab);});
-document.getElementById('spAll').onclick=()=>{checked.clear();SP.forEach(([k])=>checked.add(k));syncChips();draw();};
-document.getElementById('spNone').onclick=()=>{checked.clear();syncChips();draw();};
+document.getElementById('spAll').onclick=()=>{checked.clear();SP.forEach(([k])=>checked.add(k));syncChips();draw();__emitSp();};
+document.getElementById('spNone').onclick=()=>{checked.clear();syncChips();draw();__emitSp();};
 function syncChips(){[...chips.children].forEach(l=>{const on=checked.has(l.dataset.k);
   l.classList.toggle('on',on);l.querySelector('input').checked=on;});}
 
 function draw(){gl.clearLayers();
   if(baseKey==='habitat'){drawHabitat();return;}
-  const m=BASE.find(b=>b[0]===baseKey),lo=m[2],hi=m[3],log=m[4]==='log',arr=L_[baseKey];
+  const m=BASE.find(b=>b[0]===baseKey),lo=m[2],hi=m[3],log=m[4]==='log',pal=PAL[m[5]]||jet,arr=L_[baseKey];
+  const isConf=baseKey==='conf';
   let n=0,sum=0,mx=-1e9;
   for(let i=0;i<N;i++){let v=arr[i]; if(v==null)continue;
     let t=log?(Math.log10(Math.max(0.01,v))-lo)/(hi-lo):(v-lo)/(hi-lo);
-    rect(i,jet(t)); n++;sum+=v;mx=Math.max(mx,v);}
-  setKpi([['網格數',n],['解析度','~4km'],['平均',(sum/n).toFixed(2)],['最高',mx.toFixed(2)]]);
-  setLegend(m[1]); document.getElementById('hint').textContent='';
+    rect(i,pal(t),isConf?0.72:cellOpacity(i)); n++;sum+=v;mx=Math.max(mx,v);}
+  if(isConf){const lo3=arr.filter(v=>v!=null&&v<LOWCONF).length;
+    setKpi([['網格數',n],['平均信心',(sum/n).toFixed(2)],['低信心格',lo3],['門檻','<'+LOWCONF]]);
+    setLegend('資料信心(0低→1高)','conf');}
+  else{setKpi([['網格數',n],['解析度','~4km'],['平均',(sum/n).toFixed(2)],['最高',mx.toFixed(2)]]);
+    setLegend(m[1],'jet');}
+  document.getElementById('hint').textContent=
+    (!isConf&&CONF&&document.getElementById('lowconf').checked)?'淡色格為低信心(模型外推)':'';
 }
 function drawHabitat(){const keys=[...checked];
   if(!keys.length){setKpi([['提示','請勾選魚種']]);setLegend('棲地適合度');return;}
   let n=0,sum=0,mx=0;
   for(let i=0;i<N;i++){let best=null;
     for(const k of keys){const v=L_[k][i]; if(v!=null&&(best==null||v>best))best=v;}
-    if(best==null)continue; rect(i,jet(best/100)); n++;sum+=best;mx=Math.max(mx,best);}
+    if(best==null)continue; rect(i,jet(best/100),cellOpacity(i)); n++;sum+=best;mx=Math.max(mx,best);}
   setKpi([['網格數',n],['選取魚種',keys.length],['平均',(sum/n).toFixed(0)],['最高',mx]]);
-  setLegend(keys.length>1?'最適魚種棲地(複選取最大值)':'棲地適合度');
-  document.getElementById('hint').textContent=keys.length>1?'每格顯示所選魚種中最高的適合度':'';
+  setLegend(keys.length>1?'最適魚種棲地(複選取最大值)':'棲地適合度','jet');
+  const fade=CONF&&document.getElementById('lowconf').checked;
+  document.getElementById('hint').textContent=
+    fade?'淡色格為低信心(遠離出現點)':(keys.length>1?'每格顯示所選魚種中最高的適合度':'');
 }
+document.getElementById('lowconf').onchange=draw;
+
+// P1.5 跨時段魚種同步適配器：以魚種名(去 S:/T: 前綴)為共用鍵
+window.__getSpecies=()=>[...new Set([...checked].map(k=>k.slice(2)))];
+window.__setSpecies=names=>{checked.clear();const avail={};SP.forEach(([k])=>avail[k]=1);
+  names.forEach(nm=>{if(avail['S:'+nm])checked.add('S:'+nm);else if(avail['T:'+nm])checked.add('T:'+nm);});
+  syncChips();draw();};
+window.addEventListener('message',e=>{const d=e.data||{};if(d.nsp==='fishsync'&&d.type==='apply'&&window.__setSpecies)window.__setSpecies(d.names||[]);});
+function __emitSp(){try{if(window.parent!==window)parent.postMessage({nsp:'fishsync',type:'changed',names:window.__getSpecies()},'*');}catch(e){}}
+try{if(window.parent!==window)parent.postMessage({nsp:'fishsync',type:'ready'},'*');}catch(e){}
 map.on('click',e=>{const la=e.latlng.lat,lo=e.latlng.lng;let bi=-1,bd=1e9;
   for(let i=0;i<N;i++){const d=Math.abs(LAT[i]-la)+Math.abs(LON[i]-lo);if(d<bd){bd=d;bi=i;}}
   let h=`座標 ${la.toFixed(3)}, ${lo.toFixed(3)}`;
   if(bi>=0&&bd<=STEP*2&&L_.sst[bi]!=null){
     h+=`<br/>SST ${L_.sst[bi]}°C`+(L_.chl[bi]!=null?`　葉綠素 ${L_.chl[bi]} mg/m³`:'')+
-       (L_.front[bi]!=null?`<br/>鋒面 ${L_.front[bi]}`:'');
+       (L_.front[bi]!=null?`<br/>鋒面 ${L_.front[bi]}`:'')+
+       (CONF&&CONF[bi]!=null?`<br/>資料信心 ${CONF[bi]}（${CONF[bi]<LOWCONF?'低，模型外推':CONF[bi]<0.6?'中':'高'}）`:'');
     const ks=baseKey==='habitat'&&checked.size?[...checked]:SP.map(s=>s[0]);
     const lines=ks.map(k=>{const v=L_[k][bi];return v==null?null:`${k.slice(2)}${k[0]==='S'?'(SDM)':''} ${v}`;}).filter(Boolean);
     if(lines.length)h+='<br/>適合度：'+lines.slice(0,8).join('、');
@@ -395,7 +479,19 @@ map.on('click',e=>{const la=e.latlng.lat,lo=e.latlng.lng;let bi=-1,bd=1e9;
 document.getElementById('note').innerHTML=
   `合成日期窗：${meta.window[0]} ~ ${meta.window[1]}<br/>有效 SST 網格：${meta.n_sst_valid}<br/>`+
   `可建模魚種(SDM)：${(meta.sdm||[]).length} 種｜來源：${meta.source}`;
+document.getElementById('dateHint').innerHTML=
+  `衛星合成日期窗：${meta.window[0]} ~ ${meta.window[1]}（早春代表場）。詳細方法與限制請點右上 <b>i</b>。`;
 draw();
+// 右側圖層面板可收合(點標題列收合；點 i 不收合)
+document.getElementById('lpHead').onclick=function(e){if(e.target.closest('#infoBtn'))return;
+  document.getElementById('layerPanel').classList.toggle('collapsed');};
+// 左側標題面板可收合/重開
+var lP=document.getElementById('leftPanel'),lR=document.getElementById('leftReopen');
+document.getElementById('leftCollapse').onclick=function(){lP.style.display='none';lR.style.display='flex';};
+lR.onclick=function(){lP.style.display='';lR.style.display='none';};
+setTimeout(function(){map.invalidateSize();},150);
+window.addEventListener('resize',function(){map.invalidateSize();});
+__MODALJS__
 </script></body></html>
 """
 

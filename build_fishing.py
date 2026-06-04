@@ -15,11 +15,11 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from dashboard_common import (SHARED_CSS, haversine, load_coast, nav_html,
-                              on_land)
+from dashboard_common import (INFO_MODAL_JS, SHARED_CSS, haversine, info_modal,
+                              load_coast, nav_html, on_land)
 from species_traits import SPECIES, suitability
 
-DATA_DIR = Path(r"D:\nodass")
+DATA_DIR = Path(__file__).resolve().parent      # 專案根(相對於本檔)，取代舊硬編絕對路徑
 SRC = DATA_DIR / "buoy_window.json"
 OUT = DATA_DIR / "dashboard" / "fishing.html"
 
@@ -175,6 +175,8 @@ def build() -> None:
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     html = (TPL.replace("__CSS__", SHARED_CSS)
                .replace("__NAV__", nav_html("fish"))
+               .replace("__MODAL__", info_modal("關於本頁與資料說明", FISH_MODAL_BODY))
+               .replace("__MODALJS__", INFO_MODAL_JS)
                .replace("__DATA__", json.dumps(sst_st, ensure_ascii=False))
                .replace("__SPECIES__", json.dumps(SPECIES, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
@@ -190,8 +192,19 @@ def build() -> None:
           f"細網格={len(grid)}(step={GRID_STEP}°)  海流站={len(u_pts)}  月份={month}")
 
 
+FISH_MODAL_BODY = """
+  <div class="note">
+  <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格；色塊邊界已用精細海岸線遮罩，僅顯示海域、不溢出陸地。<br/><br/>
+  <b>魚群熱區（金色高亮區）</b>：在適合度 ≥70 的海域網格中，把彼此相鄰的格子做連通分群並聯集成一塊不規則高亮區（沿實際 0.05° 格邊界，不圈進非熱區或陸地），整塊只標一處。<b>可能移動方位（藍色箭頭與標籤）</b>：取該熱區內各格浮標實測表層海流向量平均，自區域質心畫出單一箭頭，代表魚群可能隨流移動的去向，箭頭越長流速越大。點地圖任一點可查該處經緯度與海況。<br/><br/>
+  <b>棲地趨勢</b>：近 6 小時 SST 變化；升溫使暖水魚種適宜帶向北/外擴、冷水魚種收縮，反之亦然。<br/>
+  <b>無色塊區域</b>：代表該海域不在開放浮標的有效內插範圍（最近浮標逾 120km），本系統不外推，以維持結果可信；東沙、南沙太平島等遠域因無鄰近開放浮標故無資料。<br/>
+  <b>即時</b>：執行 live_update.py（可搭排程）重抓最新浮標資料並重建，重整頁面即見最新。完整葉綠素/歷史需會員權限。對齊 SDG 14。
+  </div>
+"""
+
+
 TPL = r"""<!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-Hant" class="cwa">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -204,8 +217,8 @@ TPL = r"""<!DOCTYPE html>
   .hotlabel{white-space:nowrap;font-size:10px;color:#ffd000;font-weight:700;text-align:center;
     text-shadow:0 0 3px #000,0 0 3px #000;}
   /* 海流漂移箭頭：向上三角形，依流向旋轉 */
-  .drift{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;
-    border-bottom:12px solid #7fd4ff;filter:drop-shadow(0 0 2px #000);}
+  .drift{width:0;height:0;border-left:3px solid transparent;border-right:3px solid transparent;
+    border-bottom:10px solid #7fd4ff;filter:drop-shadow(0 0 2px #000);}
   /* 圖例樣本（class 選擇器特異度高於共用樣式的 .legend span，可覆寫尺寸） */
   .legend .bar{width:80px;height:10px;border-radius:3px;
     background:linear-gradient(90deg,rgb(46,147,108),rgb(240,162,2),rgb(215,38,61));}
@@ -214,56 +227,58 @@ TPL = r"""<!DOCTYPE html>
   .legend .lg-arrow{width:0;height:0;border-radius:0;border-left:5px solid transparent;
     border-right:5px solid transparent;border-bottom:11px solid #7fd4ff;}
 </style>
+<script>if(window.top!==window.self)document.documentElement.classList.add('embedded');</script>
 </head>
 <body>
-<header>
-  <h1>NODASS 漁場環境與經濟魚種棲地預測儀表板</h1>
-  <div class="sub">海溫鋒面 × 海流 × 魚種適溫窗 ｜ 連續內插 0.05° ｜ 資料來源：NODASS 開放浮標 API ｜ 產生 __TS__（第 __MONTH__ 月）</div>
-</header>
-__NAV__
-<div class="ctrl">
-  <strong style="color:#cdd9e5;font-size:0.85rem;padding-top:6px;">顯示</strong>
-  <span class="chips" id="modeChips"></span>
-  <label style="padding-top:6px;"><input type="checkbox" id="moveToggle" checked />魚群熱區與漂移</label>
-  <span id="modeHint" class="note"></span>
+<button class="panel-reopen" id="leftReopen" title="開啟資訊" aria-label="開啟資訊">&#9776;</button>
+<div class="leftpanel" id="leftPanel">
+  <div class="lpane-head">
+    <div class="lpane-title">NODASS 漁場環境與經濟魚種棲地預測</div>
+    <button class="lpane-x" id="leftCollapse" title="收合" aria-label="收合">&times;</button>
+  </div>
+  <div class="lpane-sub">海溫鋒面 × 海流 × 魚種適溫窗｜連續內插 0.05°｜NODASS 開放浮標 API｜產生 __TS__（第 __MONTH__ 月）</div>
+  __NAV__
 </div>
-<div class="ctrl">
-  <label for="tslider">時間軸：</label>
-  <input type="range" id="tslider" min="0" max="0" value="0" step="1" style="flex:1 1 240px;min-width:180px;" />
-  <span class="note" id="tlabel"></span>
-  <span class="note">（拖曳可回放近兩日海溫與棲地熱區演變）</span>
-</div>
-<div class="wrap">
+<div class="stage">
   <div id="map"></div>
-  <div class="side">
-    <div class="panel">
+  <div class="layerpanel" id="layerPanel">
+    <div class="lp-head" id="lpHead">
+      <h2>魚種圖層</h2>
+      <button class="infobtn" id="infoBtn" title="說明" aria-label="說明">i</button>
+      <span class="lp-arrow">&#9662;</span>
+    </div>
+    <div class="lp-body">
+      <div><div class="lp-label">顯示</div><span class="chips" id="modeChips"></span></div>
+      <div class="lp-toggles"><label><input type="checkbox" id="moveToggle" checked />魚群熱區與漂移</label></div>
+      <span id="modeHint" class="note"></span>
       <div class="kpi" id="kpi"></div>
-      <div class="legend" style="margin-top:8px;" id="legend"></div>
-    </div>
-    <div class="panel" id="spPanel" style="display:none;">
-      <h3 style="margin:4px 0 8px;" id="spTitle"></h3>
-      <div id="spInfo" style="font-size:0.82rem;line-height:1.7;"></div>
-      <div id="moveInfo" style="font-size:0.82rem;margin-top:6px;color:#9fd3ff;"></div>
-    </div>
-    <div class="panel">
-      <h3 id="tblTitle" style="margin:4px 0 8px;">排序（點擊看海溫時序）</h3>
-      <div style="max-height:200px;overflow:auto;">
-        <table id="tbl"><thead></thead><tbody></tbody></table>
+      <div class="legend" id="legend"></div>
+      <div id="spPanel" style="display:none;border-top:1px solid #24344f;padding-top:8px;">
+        <h3 style="margin:2px 0 6px;" id="spTitle"></h3>
+        <div id="spInfo" style="font-size:0.82rem;line-height:1.7;"></div>
+        <div id="moveInfo" style="font-size:0.82rem;margin-top:6px;color:#9fd3ff;"></div>
+      </div>
+      <div style="border-top:1px solid #24344f;padding-top:8px;">
+        <h3 id="tblTitle" style="margin:2px 0 6px;">排序（點擊看海溫時序）</h3>
+        <div style="max-height:180px;overflow:auto;"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+      </div>
+      <div style="border-top:1px solid #24344f;padding-top:8px;">
+        <h3 id="ct" style="margin:2px 0 6px;">Sea Temperature</h3>
+        <div class="chartbox" style="height:160px;"><canvas id="chart"></canvas></div>
       </div>
     </div>
-    <div class="panel">
-      <h3 id="ct" style="margin:4px 0 8px;">Sea Temperature</h3>
-      <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+  <div class="timebar">
+    <button class="tbtn" id="playBtn" title="自動播放" aria-label="自動播放">&#9654;</button>
+    <div class="tslider">
+      <div class="tlabel" id="tlabel">時間軸</div>
+      <input type="range" id="tslider" min="0" max="0" value="0" step="1" />
+      <div class="tticks" id="tticks"></div>
     </div>
   </div>
+  <div class="floathint">即時浮標海溫與魚種棲地、魚群熱區與漂移；拖曳下方時間軸回放近兩日。完整說明點右上 <b>i</b>。</div>
 </div>
-<div class="wrap"><div class="panel" style="flex:1;"><div class="note">
-  <b>魚種棲地適合度（0–100）</b>：適溫窗梯形隸屬函數 × 季節因子，將浮標 SST 以 IDW 內插成 0.05° 連續海域網格；色塊邊界已用精細海岸線遮罩，僅顯示海域、不溢出陸地。<br/>
-  <b>魚群熱區（金色高亮區）</b>：在適合度 ≥70 的海域網格中，把彼此相鄰的格子做連通分群並聯集成一塊不規則高亮區（沿實際 0.05° 格邊界，不圈進非熱區或陸地），整塊只標一處。<b>可能移動方位（藍色箭頭與標籤）</b>：取該熱區內各格浮標實測表層海流向量平均，自區域質心畫出單一箭頭，代表魚群可能隨流移動的去向，箭頭越長流速越大。點地圖任一點可查該處經緯度與海況。<br/>
-  <b>棲地趨勢</b>：近 6 小時 SST 變化；升溫使暖水魚種適宜帶向北/外擴、冷水魚種收縮，反之亦然。<br/>
-  <b>無色塊區域</b>：代表該海域不在開放浮標的有效內插範圍（最近浮標逾 120km），本系統不外推，以維持結果可信；東沙、南沙太平島等遠域因無鄰近開放浮標故無資料。<br/>
-  <b>即時</b>：執行 live_update.py（可搭排程）重抓最新浮標資料並重建，重整頁面即見最新。完整葉綠素/歷史需會員權限。對齊 SDG 14。
-</div></div></div>
+__MODAL__
 <script>
 const DATA = __DATA__;
 const SPECIES = __SPECIES__;
@@ -296,6 +311,7 @@ function colorFor(s){return s>=60?'#d7263d':s>=35?'#f0a202':'#2e933c';}
 function valFor(s,mode){return mode===OVERALL?s.fish_score:(s.species[mode]??0);}
 
 const map = L.map('map').setView([23.7,121.0],7);
+map.zoomControl.setPosition('bottomright');   // 移開左上，避免被左側標題面板遮住
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   {subdomains:'abcd',maxZoom:18,attribution:'© OpenStreetMap © CARTO'}).addTo(map);
 const gridRenderer = L.canvas({padding:0.5});  // 網格矩形用 canvas 算繪，效能佳
@@ -314,11 +330,21 @@ function addChip(val,label){const lab=document.createElement('label');lab.datase
   lab.innerHTML=`<input type="radio" name="m" ${val===curMode?'checked':''}/> ${label}`;
   lab.classList.toggle('on',val===curMode);
   lab.querySelector('input').onchange=()=>{curMode=val;
-    [...modeChips.children].forEach(c=>c.classList.toggle('on',c.dataset.v===val));render(val);};
+    [...modeChips.children].forEach(c=>c.classList.toggle('on',c.dataset.v===val));render(val);__emitSp();};
   modeChips.appendChild(lab);}
 addChip(OVERALL,'綜合潛在漁場');
 SPECIES.forEach(sp=>addChip(sp.name,sp.name));
 document.getElementById('moveToggle').onchange=()=>render(curMode);
+
+// P1.5 跨時段魚種同步適配器：本頁為單選，套用所收名單中第一個本頁有的魚種(其餘時段的複選在此收斂為單選)
+function __applyMode(val){curMode=val;
+  [...modeChips.children].forEach(c=>{const on=c.dataset.v===val;c.classList.toggle('on',on);
+    const inp=c.querySelector('input');if(inp)inp.checked=on;});render(val);}
+window.__getSpecies=()=>curMode===OVERALL?[]:[curMode];
+window.__setSpecies=names=>{const nm=(names||[]).find(x=>SPECIES.some(s=>s.name===x));__applyMode(nm||OVERALL);};
+window.addEventListener('message',e=>{const d=e.data||{};if(d.nsp==='fishsync'&&d.type==='apply'&&window.__setSpecies)window.__setSpecies(d.names||[]);});
+function __emitSp(){try{if(window.parent!==window)parent.postMessage({nsp:'fishsync',type:'changed',names:window.__getSpecies()},'*');}catch(e){}}
+try{if(window.parent!==window)parent.postMessage({nsp:'fishsync',type:'ready'},'*');}catch(e){}
 
 function drawGrid(sp){gridLayer.clearLayers(); if(!sp)return;
   GRID.forEach(c=>{const v=suit(c.v,sp); if(v<=0)return;
@@ -501,7 +527,7 @@ map.on('click',e=>{
 render(OVERALL);
 showChart(DATA[0]);
 
-// 時間軸：拖曳以該時刻各站 SST 重算海溫場與棲地熱區（重整顯示）
+// 時間軸：拖曳以該時刻各站 SST 重算海溫場與棲地熱區（可拖曳 + 播放，近兩日逐時回放）
 const tslider=document.getElementById('tslider'), tlabel=document.getElementById('tlabel');
 function setTime(i){
   const vals=DATA.map(s=>s.sst_t?s.sst_t[i]:null);
@@ -511,7 +537,23 @@ function setTime(i){
 }
 if(TIMES.length){tslider.max=TIMES.length-1; tslider.value=TIMES.length-1;
   tslider.oninput=()=>setTime(+tslider.value);
-  tlabel.textContent=(TIMES[TIMES.length-1]||'').slice(5,16).replace('T',' ');}
+  // 起訖刻度
+  const tk=document.getElementById('tticks');
+  tk.innerHTML=`<span>${(TIMES[0]||'').slice(5,10)}</span><span>${(TIMES[TIMES.length-1]||'').slice(5,10)}</span>`;
+  setTime(TIMES.length-1);
+  let pT=null;const pB=document.getElementById('playBtn');
+  pB.onclick=function(){if(pT){clearInterval(pT);pT=null;pB.innerHTML='&#9654;';return;}
+    pB.innerHTML='&#10074;&#10074;';pT=setInterval(()=>{let n=(+tslider.value+1)%TIMES.length;tslider.value=n;setTime(n);},900);};
+}
+// 右側面板收合(點標題列；點 i 不收合) + 左側標題面板收合/重開 + 地圖尺寸校正
+document.getElementById('lpHead').onclick=function(e){if(e.target.closest('#infoBtn'))return;
+  document.getElementById('layerPanel').classList.toggle('collapsed');};
+var lP=document.getElementById('leftPanel'),lR=document.getElementById('leftReopen');
+document.getElementById('leftCollapse').onclick=function(){lP.style.display='none';lR.style.display='flex';};
+lR.onclick=function(){lP.style.display='';lR.style.display='none';};
+setTimeout(function(){map.invalidateSize();},150);
+window.addEventListener('resize',function(){map.invalidateSize();});
+__MODALJS__
 </script>
 </body></html>
 """
