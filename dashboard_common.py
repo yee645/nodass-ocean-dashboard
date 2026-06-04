@@ -164,7 +164,111 @@ SHARED_CSS = """
     padding:5px 10px;font-size:0.8rem;cursor:pointer;}
   .toolbtn:hover{color:#e8eef7;}
   @media (max-width:760px){ .side{flex:1 1 100%;} #map{flex:1 1 100%;} }
+  /* 子頁被平台以 iframe 嵌入時(html.embedded)隱藏自身標題/導覽，避免與平台重複 */
+  html.embedded header, html.embedded .tabs,
+  html.embedded .leftpanel, html.embedded .panel-reopen{display:none!important;}
+  /* 「i」說明按鈕 + 彈出視窗(說明資訊收納於此，點 i 才顯示；介面參考 ocean.cwa.gov.tw) */
+  .infobtn{margin-left:auto;display:inline-flex;align-items:center;justify-content:center;
+    width:26px;height:26px;border-radius:50%;background:#1c2c46;color:#cfe0f5;border:1px solid #2f456b;
+    font:italic 700 0.95rem Georgia,serif;cursor:pointer;flex:0 0 auto;}
+  .infobtn:hover{background:#2f6fed;color:#fff;border-color:#2f6fed;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(6,12,22,.66);display:none;
+    align-items:center;justify-content:center;z-index:1000;padding:16px;}
+  .modal-backdrop.show{display:flex;}
+  .modal{background:#15233b;border:1px solid #2f456b;border-radius:12px;max-width:760px;width:100%;
+    max-height:84vh;overflow:auto;box-shadow:0 18px 48px rgba(0,0,0,.5);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 18px;border-bottom:1px solid #24344f;position:sticky;top:0;background:#15233b;}
+  .modal-head h2{margin:0;font-size:clamp(0.98rem,1.6vw,1.1rem);color:#eaf2ff;}
+  .modal-close{background:transparent;border:none;color:#9fb3c8;font-size:1.5rem;line-height:1;cursor:pointer;}
+  .modal-close:hover{color:#fff;}
+  .modal-body{padding:16px 18px;}
+  .modal-body .note{font-size:0.86rem;color:#c2d2e6;}
+  /* === CWA 海象平台風格：全螢幕地圖 + 浮動面板版型(html.cwa 啟用) === */
+  html.cwa,html.cwa body{height:100%;}
+  html.cwa body{display:flex;flex-direction:column;overflow:hidden;}
+  html.cwa .stage{position:relative;flex:1 1 auto;min-height:0;}
+  html.cwa #map{position:absolute!important;inset:0;height:100%!important;width:100%!important;border-radius:0;}
+  /* 右側浮動圖層面板(可收合) */
+  .layerpanel{position:absolute;top:12px;right:12px;z-index:600;width:min(320px,84vw);
+    background:rgba(19,32,55,.95);border:1px solid #2f456b;border-radius:10px;
+    box-shadow:0 8px 26px rgba(0,0,0,.45);max-height:calc(100% - 92px);display:flex;flex-direction:column;}
+  .lp-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #24344f;cursor:pointer;user-select:none;}
+  .lp-head h2{margin:0;font-size:0.95rem;flex:1 1 auto;color:#eaf2ff;}
+  .lp-head .infobtn{margin-left:0;}
+  .lp-arrow{color:#9fb3c8;transition:transform .2s;}
+  .layerpanel.collapsed .lp-body{display:none;}
+  .layerpanel.collapsed .lp-arrow{transform:rotate(-90deg);}
+  .lp-body{padding:10px 12px;overflow:auto;display:flex;flex-direction:column;gap:10px;}
+  .lp-label{font-size:0.78rem;color:#9fb3c8;margin-bottom:4px;font-weight:600;}
+  .lp-toggles{display:flex;flex-wrap:wrap;gap:8px 14px;}
+  .layerpanel .seg{flex-direction:column;align-items:stretch;}
+  .layerpanel .seg button{text-align:left;}
+  .layerpanel .chips{max-height:150px;}
+  /* 左上浮動標題面板(取代頂部標題列，可收合) + 收合後重開鈕 */
+  html.cwa .leftpanel{position:absolute;top:12px;left:12px;z-index:600;width:min(310px,82vw);
+    background:rgba(19,32,55,.95);border:1px solid #2f456b;border-radius:10px;padding-bottom:8px;
+    box-shadow:0 8px 26px rgba(0,0,0,.45);max-height:calc(100% - 92px);overflow:auto;}
+  .lpane-head{display:flex;align-items:flex-start;gap:8px;padding:10px 12px 4px;}
+  .lpane-title{font-weight:700;font-size:0.92rem;color:#eaf2ff;flex:1 1 auto;line-height:1.35;}
+  .lpane-x{background:transparent;border:none;color:#9fb3c8;font-size:1.35rem;line-height:1;cursor:pointer;flex:0 0 auto;}
+  .lpane-x:hover{color:#fff;}
+  .lpane-sub{font-size:0.72rem;color:#9fb3c8;padding:0 12px 6px;line-height:1.5;}
+  html.cwa .leftpanel .tabs{background:transparent;border:none;padding:4px 8px 0;}
+  .panel-reopen{position:absolute;top:12px;left:12px;z-index:601;width:40px;height:40px;border-radius:9px;
+    background:rgba(19,32,55,.96);border:1px solid #2f456b;color:#cfe0f5;font-size:1.25rem;cursor:pointer;
+    display:none;align-items:center;justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.45);}
+  .panel-reopen:hover{background:#2f6fed;color:#fff;border-color:#2f6fed;}
+  /* 底部置中時間列：可拖曳時間軸滑桿 + 播放鈕 + 日期刻度 */
+  .timebar{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:600;
+    background:rgba(19,32,55,.95);border:1px solid #2f456b;border-radius:24px;padding:8px 18px;
+    display:flex;align-items:center;gap:12px;box-shadow:0 8px 26px rgba(0,0,0,.45);max-width:94vw;}
+  .timebar strong{color:#cdd9e5;font-size:0.82rem;}
+  .tbtn{background:#1c2c46;color:#cfe0f5;border:1px solid #2f456b;border-radius:50%;width:34px;height:34px;
+    cursor:pointer;font-size:0.85rem;flex:0 0 auto;}
+  .tbtn:hover{background:#2f6fed;color:#fff;border-color:#2f6fed;}
+  .tslider{display:flex;flex-direction:column;gap:3px;min-width:min(440px,72vw);}
+  .tlabel{font-size:0.82rem;color:#eaf2ff;text-align:center;font-weight:600;}
+  .tslider input[type=range]{width:100%;accent-color:#2f6fed;margin:0;cursor:pointer;}
+  .tticks{display:flex;justify-content:space-between;font-size:0.7rem;color:#9fb3c8;}
+  @media (max-width:760px){ html.cwa .leftpanel{width:min(240px,64vw);} }
+  /* 左下浮動提示(精簡，完整說明在 i 彈窗) */
+  .floathint{position:absolute;left:12px;bottom:16px;z-index:550;max-width:min(420px,56vw);
+    background:rgba(19,32,55,.9);border:1px solid #2f456b;border-radius:10px;padding:8px 12px;
+    font-size:0.76rem;color:#c2d2e6;line-height:1.5;}
+  @media (max-width:760px){
+    .layerpanel{width:min(300px,72vw);max-height:calc(100% - 130px);}
+    .floathint{display:none;}
+  }
 """
+
+
+def info_button(label: str = "說明") -> str:
+    """「i」說明按鈕(置於控制列右側，點擊開啟說明彈窗)。"""
+    return (f'<button class="infobtn" id="infoBtn" title="{label}" '
+            f'aria-label="{label}">i</button>')
+
+
+def info_modal(title: str, body_html: str) -> str:
+    """說明彈窗：預設隱藏，點 i 顯示。body_html 放原本頁面底部的說明內容。"""
+    return (
+        '<div class="modal-backdrop" id="infoModal" role="dialog" aria-modal="true">'
+        '<div class="modal"><div class="modal-head">'
+        f'<h2>{title}</h2>'
+        '<button class="modal-close" aria-label="關閉">&times;</button></div>'
+        f'<div class="modal-body">{body_html}</div></div></div>'
+    )
+
+
+# 說明彈窗開關 JS(點 i 開、點遮罩/關閉鈕/Esc 關)
+INFO_MODAL_JS = (
+    "(function(){var b=document.getElementById('infoBtn'),m=document.getElementById('infoModal');"
+    "if(!b||!m)return;b.onclick=function(){m.classList.add('show');};"
+    "m.addEventListener('click',function(e){"
+    "if(e.target===m||e.target.classList.contains('modal-close'))m.classList.remove('show');});"
+    "document.addEventListener('keydown',function(e){if(e.key==='Escape')m.classList.remove('show');});"
+    "})();"
+)
 
 
 def nav_html(active: str) -> str:

@@ -10,9 +10,10 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from dashboard_common import SHARED_CSS, build_grid, load_coast, nav_html
+from dashboard_common import (INFO_MODAL_JS, SHARED_CSS, build_grid, info_modal,
+                              load_coast, nav_html)
 
-DATA_DIR = Path(r"D:\nodass")
+DATA_DIR = Path(__file__).resolve().parent      # 專案根(相對於本檔)，取代舊硬編絕對路徑
 SRC = DATA_DIR / "buoy_window.json"
 OUT_DIR = DATA_DIR / "dashboard"
 OUT = OUT_DIR / "index.html"
@@ -127,6 +128,8 @@ def build() -> None:
     OUT_DIR.mkdir(exist_ok=True)
     html = (TPL.replace("__CSS__", SHARED_CSS)
                .replace("__NAV__", nav_html("wave"))
+               .replace("__MODAL__", info_modal("關於本頁與資料說明", WAVE_MODAL_BODY))
+               .replace("__MODALJS__", INFO_MODAL_JS)
                .replace("__DATA__", json.dumps(stations, ensure_ascii=False))
                .replace("__GRID__", json.dumps(grid, ensure_ascii=False))
                .replace("__TIMES__", json.dumps(times, ensure_ascii=False))
@@ -139,8 +142,18 @@ def build() -> None:
           f"({top['level']}) Hs={top['hs_now']}m")
 
 
+WAVE_MODAL_BODY = """
+  <div class="note">
+  <b>風險指標（透明可解釋，0–100）</b>：示性波高 40% ＋ 波高暴增率 25%（瘋狗浪前兆）＋ 長週期湧浪旗標 15% ＋ 陣風因子 10% ＋ 3 小時氣壓驟降 10%。<br/><br/>
+  <b>連續波高熱區</b>：以反距離加權將 26 浮標示性波高內插成海域網格，僅顯示浮標 120km 內、非陸地之網格。<br/>
+  <b>升級路徑</b>：取得 NODASS 管制資料權限後可串接歷史資料訓練 LSTM 做 1–2 小時前異常巨浪機率預測。對齊 SDG 3、14。<br/><br/>
+  <b>出海安全</b>正式以中央氣象署海象/漁業氣象與海巡署警報為準，本頁為參考用途。
+  </div>
+"""
+
+
 TPL = r"""<!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-Hant" class="cwa">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -149,51 +162,58 @@ TPL = r"""<!DOCTYPE html>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>__CSS__</style>
+<script>if(window.top!==window.self)document.documentElement.classList.add('embedded');</script>
 </head>
 <body>
-<header>
-  <h1>NODASS 全台浮標極端浪況即時預警儀表板</h1>
-  <div class="sub">資料來源：國家海洋資料庫及共享平臺（NODASS）開放浮標 API ｜ 逐時資料近兩日 ｜ 產生時間 __TS__</div>
-</header>
-__NAV__
-<div class="ctrl">
-  <label><input type="checkbox" id="gridToggle" checked />顯示連續波高熱區（IDW 內插）</label>
-  <span class="note" id="gridLegend"></span>
+<button class="panel-reopen" id="leftReopen" title="開啟資訊" aria-label="開啟資訊">&#9776;</button>
+<div class="leftpanel" id="leftPanel">
+  <div class="lpane-head">
+    <div class="lpane-title">NODASS 全台浮標極端浪況即時預警</div>
+    <button class="lpane-x" id="leftCollapse" title="收合" aria-label="收合">&times;</button>
+  </div>
+  <div class="lpane-sub">國家海洋資料庫及共享平臺（NODASS）開放浮標 API｜逐時資料近兩日｜產生 __TS__</div>
+  __NAV__
 </div>
-<div class="ctrl">
-  <label for="tslider">時間軸：</label>
-  <input type="range" id="tslider" min="0" max="0" value="0" step="1" style="flex:1 1 240px;min-width:180px;" />
-  <span class="note" id="tlabel"></span>
-  <span class="note">（拖曳可回放近兩日波高場演變）</span>
-</div>
-<div class="wrap">
+<div class="stage">
   <div id="map"></div>
-  <div class="side">
-    <div class="panel">
+  <div class="layerpanel" id="layerPanel">
+    <div class="lp-head" id="lpHead">
+      <h2>圖層</h2>
+      <button class="infobtn" id="infoBtn" title="說明" aria-label="說明">i</button>
+      <span class="lp-arrow">&#9662;</span>
+    </div>
+    <div class="lp-body">
+      <div class="lp-toggles"><label><input type="checkbox" id="gridToggle" checked />連續波高熱區（IDW）</label></div>
+      <span class="note" id="gridLegend"></span>
       <div class="kpi" id="kpi"></div>
-      <div class="legend" style="margin-top:8px;">風險等級：
+      <div class="legend">風險等級：
         <span style="background:#2e933c"></span>低<span style="background:#f0a202"></span>注意
         <span style="background:#f46036"></span>警戒<span style="background:#d7263d"></span>危險</div>
-    </div>
-    <div class="panel">
-      <h3 style="margin:4px 0 8px;">風險排序（點擊查看時序）</h3>
-      <div style="max-height:200px;overflow:auto;">
-        <table id="tbl"><thead><tr>
-          <th>站名</th><th>緯度,經度</th><th>Hs(m)</th><th>週期(s)</th><th>暴增</th><th>風險</th>
-        </tr></thead><tbody></tbody></table>
+      <div style="border-top:1px solid #24344f;padding-top:8px;">
+        <h3 style="margin:2px 0 6px;">風險排序（點擊查看時序）</h3>
+        <div style="max-height:180px;overflow:auto;">
+          <table id="tbl"><thead><tr>
+            <th>站名</th><th>緯度,經度</th><th>Hs(m)</th><th>週期(s)</th><th>暴增</th><th>風險</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div style="border-top:1px solid #24344f;padding-top:8px;">
+        <h3 id="chartTitle" style="margin:2px 0 6px;">波高時序</h3>
+        <div class="chartbox" style="height:160px;"><canvas id="chart"></canvas></div>
       </div>
     </div>
-    <div class="panel">
-      <h3 id="chartTitle" style="margin:4px 0 8px;">波高時序</h3>
-      <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+  <div class="timebar">
+    <button class="tbtn" id="playBtn" title="自動播放" aria-label="自動播放">&#9654;</button>
+    <div class="tslider">
+      <div class="tlabel" id="tlabel">時間軸</div>
+      <input type="range" id="tslider" min="0" max="0" value="0" step="1" />
+      <div class="tticks" id="tticks"></div>
     </div>
   </div>
+  <div class="floathint">全台浮標波高風險與熱區；拖曳下方時間軸回放近兩日。完整指標說明點右上 <b>i</b>。</div>
 </div>
-<div class="wrap"><div class="panel" style="flex:1;"><div class="note">
-  <b>風險指標（透明可解釋，0–100）</b>：示性波高 40% ＋ 波高暴增率 25%（瘋狗浪前兆）＋ 長週期湧浪旗標 15% ＋ 陣風因子 10% ＋ 3 小時氣壓驟降 10%。<br/>
-  <b>連續波高熱區</b>：以反距離加權將 26 浮標示性波高內插成海域網格，僅顯示浮標 120km 內、非陸地之網格。<br/>
-  <b>升級路徑</b>：取得 NODASS 管制資料權限後可串接歷史資料訓練 LSTM 做 1–2 小時前異常巨浪機率預測。對齊 SDG 3、14。
-</div></div></div>
+__MODAL__
 <script>
 const DATA = __DATA__;
 const GRID = __GRID__;
@@ -213,6 +233,7 @@ function idwAt(lat,lon,vals){let num=0,den=0,near=1e9;
   return (den>0&&near<=IDW_RADIUS)?num/den:null;}
 
 const map = L.map('map').setView([23.7, 121.0], 7);
+map.zoomControl.setPosition('bottomright');   // 移開左上，避免被左側標題面板遮住
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   { subdomains: 'abcd', maxZoom: 18, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 // 陸地畫在高層 pane（zIndex 450）：蓋住熱區在岸邊的溢出，且大陸等所有陸地清晰可辨
@@ -247,8 +268,22 @@ function redrawAt(i){
   tlabel.textContent=(TIMES[i]||'').slice(5,16).replace('T',' ');
 }
 if(TIMES.length){tslider.max=TIMES.length-1; tslider.value=TIMES.length-1;
-  tslider.oninput=()=>redrawAt(+tslider.value); redrawAt(TIMES.length-1);}
+  tslider.oninput=()=>redrawAt(+tslider.value); redrawAt(TIMES.length-1);
+  const tk=document.getElementById('tticks');
+  tk.innerHTML=`<span>${(TIMES[0]||'').slice(5,10)}</span><span>${(TIMES[TIMES.length-1]||'').slice(5,10)}</span>`;
+  let pT=null;const pB=document.getElementById('playBtn');
+  pB.onclick=function(){if(pT){clearInterval(pT);pT=null;pB.innerHTML='&#9654;';return;}
+    pB.innerHTML='&#10074;&#10074;';pT=setInterval(()=>{let n=(+tslider.value+1)%TIMES.length;tslider.value=n;redrawAt(n);},900);};}
 else drawGrid();
+// 右側面板收合(點 i 不收合) + 左側標題面板收合/重開 + 地圖尺寸校正
+document.getElementById('lpHead').onclick=function(e){if(e.target.closest('#infoBtn'))return;
+  document.getElementById('layerPanel').classList.toggle('collapsed');};
+var lP=document.getElementById('leftPanel'),lR=document.getElementById('leftReopen');
+document.getElementById('leftCollapse').onclick=function(){lP.style.display='none';lR.style.display='flex';};
+lR.onclick=function(){lP.style.display='';lR.style.display='none';};
+setTimeout(function(){map.invalidateSize();},150);
+window.addEventListener('resize',function(){map.invalidateSize();});
+__MODALJS__
 
 const markers = {};
 DATA.forEach(s => {
