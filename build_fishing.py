@@ -151,7 +151,17 @@ def build() -> None:
         score = 70 * min(1.0, grad / 3.0) + 30 * min(1.0, cur / 0.8)
         s["fish_score"] = round(min(100.0, score), 1)
         s["level"], s["color"] = level_color(s["fish_score"])
-        s["species"] = {sp["name"]: suitability(s["sst"], sp, month) for sp in SPECIES}
+        s["species"] = {
+            sp["name"]: suitability(
+                s["sst"],
+                sp,
+                month,
+                front=s.get("front"),
+                current=s.get("current"),
+                trend=s.get("trend"),
+            )
+            for sp in SPECIES
+        }
 
     # 時間軸：對齊各站海溫時序（前向填補），供前端逐時重算 SST 與棲地熱區
     times = sorted({p["t"] for s in sst_st for p in s["sst_series"]})
@@ -313,10 +323,29 @@ function idwSST(lat,lon,vals){let num=0,den=0,near=1e9;
     if(d<near)near=d; if(d<=IDW_RADIUS){const w=1/(d*d+1);num+=w*v;den+=w;}}
   return (den>0&&near<=IDW_RADIUS)?num/den:null;}
 
-function suit(sst, sp){ if(sst==null)return 0;
-  const {sst_min:a,opt_lo:b,opt_hi:c,sst_max:d}=sp; let t;
-  if(sst<=a||sst>=d)t=0; else if(sst>=b&&sst<=c)t=1; else if(sst<b)t=(sst-a)/(b-a); else t=(d-sst)/(d-c);
-  return Math.round(t*(sp.season.includes(MONTH)?1:0.55)*1000)/10; }
+function clamp(v,min=0,max=1){return Math.max(min,Math.min(max,v));}
+function bell(v,opt,maxv){if(v==null||v<=0)return 0;
+  const sigma=Math.max(maxv/2.5,0.01);
+  return clamp(Math.exp(-((v-opt)**2)/(2*sigma**2))); }
+function thermalScore(sst,sp){if(sst==null)return 0;
+  const {sst_min:a,opt_lo:b,opt_hi:c,sst_max:d}=sp;
+  if(sst<=a||sst>=d)return 0;
+  const center=(b+c)/2,sigma=sp.temp_sigma??Math.max((c-b)/2,1);
+  const score=Math.exp(-((sst-center)**2)/(2*sigma**2));
+  return (sst>=b&&sst<=c)?Math.max(0.72,score):clamp(score); }
+function suit(sst,sp,env={}){ if(sst==null)return 0;
+  const weights=sp.weights??{};
+  const wSst=weights.sst??0.6,wFront=weights.front??0.15,wCurrent=weights.current??0.1,wSeason=weights.season??0.15;
+  const total=Math.max(wSst+wFront+wCurrent+wSeason,0.01);
+  const current=env.current??((env.u!=null&&env.w!=null)?Math.hypot(env.u,env.w):null);
+  const season=sp.season.includes(MONTH)?1:(sp.season_floor??0.45);
+  const front=bell(env.front,sp.front_opt??2,sp.front_max??5);
+  const cur=bell(current,sp.current_opt??0.3,sp.current_max??1);
+  const warm=(sp.opt_lo+sp.opt_hi)/2>=23;
+  const trend=env.tr??env.trend;
+  const trendBonus=trend==null?0:clamp(trend*(warm?1:-1)*1.5,-0.05,0.05);
+  const score=(thermalScore(sst,sp)*wSst+front*wFront+cur*wCurrent+season*wSeason)/total+trendBonus;
+  return Math.round(clamp(score)*1000)/10; }
 function heat(v){const x=Math.max(0,Math.min(100,v))/100;
   const r=Math.round(46+x*(215-46)),g=Math.round(147-x*(147-38)),b=Math.round(108-x*(108-61));
   return `rgb(${r},${g},${b})`;}
@@ -360,7 +389,7 @@ function __emitSp(){try{if(window.parent!==window)parent.postMessage({nsp:'fishs
 try{if(window.parent!==window)parent.postMessage({nsp:'fishsync',type:'ready'},'*');}catch(e){}
 
 function drawGrid(sp){gridLayer.clearLayers(); if(!sp)return;
-  GRID.forEach(c=>{const v=suit(c.v,sp); if(v<=0)return;
+  GRID.forEach(c=>{const v=suit(c.v,sp,{u:c.u,w:c.w,tr:c.tr}); if(v<=0)return;
     L.rectangle([[c.lat-STEP/2,c.lon-STEP/2],[c.lat+STEP/2,c.lon+STEP/2]],
       {stroke:false,fillColor:heat(v),fillOpacity:0.5,renderer:gridRenderer}).addTo(gridLayer);});}
 
@@ -378,7 +407,7 @@ function drawMovement(sp){
   moveLayer.clearLayers();
   if(!sp || !document.getElementById('moveToggle').checked) return;
   // 1. 取高適合度格子，建格座標索引供相鄰判定
-  const hot=GRID.map(c=>({c,v:suit(c.v,sp)})).filter(o=>o.v>=HOT_THR);
+  const hot=GRID.map(c=>({c,v:suit(c.v,sp,{u:c.u,w:c.w,tr:c.tr})})).filter(o=>o.v>=HOT_THR);
   if(!hot.length) return;
   const byKey=new Map(); hot.forEach(o=>byKey.set(gkey(o.c.lat,o.c.lon),o));
   // 2. connected-components 分群（4 鄰接）
@@ -528,7 +557,7 @@ map.on('click',e=>{
   if(best && bd<=STEP*1.5){
     html+=`<br/>SST ${best.v}°C`;
     const sp=SPECIES.find(x=>x.name===curMode);
-    html+= sp?`<br/>${sp.name} 棲地適合度 ${suit(best.v,sp)}／100`:'<br/>（綜合潛在漁場模式）';
+    html+= sp?`<br/>${sp.name} 棲地適合度 ${suit(best.v,sp,{u:best.u,w:best.w,tr:best.tr})}／100`:'<br/>（綜合潛在漁場模式）';
     if(best.u!==undefined)
       html+=`<br/>海流 ${Math.hypot(best.u,best.w).toFixed(2)} m/s 往${dirName(bearingDeg(best.u,best.w))}`;
   }else{

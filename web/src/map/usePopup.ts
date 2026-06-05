@@ -102,7 +102,11 @@ export function usePopup(): (lng: number, lat: number) => string | null {
         ) {
           html += `<br/>SST ${empty(best.v, '°C')}`
           html += sp
-            ? `<br/>${sp.name} 棲地適合度 ${suit(best.v, sp, meta.month)} / 100`
+            ? `<br/>${sp.name} 棲地適合度 ${suit(best.v, sp, meta.month, {
+                u: best.u,
+                w: best.w,
+                trend: best.tr,
+              })} / 100`
             : '<br/>綜合潛在漁場格點'
           if (best.u !== undefined && best.w !== undefined) {
             html += `<br/>海流 ${Math.hypot(best.u, best.w).toFixed(2)} m/s，${dirName(bearingDeg(best.u, best.w))}`
