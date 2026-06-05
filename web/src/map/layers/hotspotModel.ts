@@ -45,16 +45,15 @@ export interface HotCore {
 }
 
 export interface CoreOptions {
-  topPct?: number // 取分數前段比例(預設 0.12)
+  topPct?: number // 取分數前段比例(預設 0.10)
   confMin?: number // 信心門檻(預設 0.3)
   minSize?: number // 核心最小格數(預設 2)
+  maxCells?: number // 單一核心最大格數，超過則自峰值往外保留最高分(預設 40)，避免巨型 blob
   erode?: boolean // 是否侵蝕去邊緣一格(預設 true)
 }
 
 export interface ScoreOptions {
   suitMax?: number // 同學 suit 的上限(預設 100，換算成 0–1)
-  densityExp?: number // 出現密度的指數(>1 更嚴格收緊；預設 1)
-  densityFloor?: number // 無出現點處仍給的底，避免全黑(預設 0.15)
 }
 
 const DEG_KM = 111.32
@@ -89,17 +88,17 @@ export function occurrenceDensity(
   occ: OccPoint[],
   species: string,
   month: number,
-  opts: { monthSigma?: number; bandwidthDeg?: number } = {},
+  opts: { monthSigma?: number; bandwidthDeg?: number; satPct?: number } = {},
 ): number[] {
-  const mSigma = opts.monthSigma ?? 2 // 月份權重高斯寬度(月)
-  const bw = opts.bandwidthDeg ?? 0.25
+  const mSigma = opts.monthSigma ?? 3 // 月份權重高斯寬度(月)
+  const bw = opts.bandwidthDeg ?? 0.12 // 窄頻寬：核心貼住實際聚落
+  const satPct = opts.satPct ?? 0.5 // 飽和分位
   const pts = occ.filter((o) => o.species === species)
   if (!pts.length) return cells.map(() => 0)
   const inv2bw2 = 1 / (2 * bw * bw)
   const inv2m2 = 1 / (2 * mSigma * mSigma)
-  // 預先算各點的月份權重，<0.05 直接略過(離當季太遠)
   const wm = pts.map((p) => Math.exp(-(monthDiff(p.month, month) ** 2) * inv2m2))
-  const raw = cells.map((c) => {
+  const kde = cells.map((c) => {
     let sum = 0
     for (let k = 0; k < pts.length; k++) {
       if (wm[k] < 0.05) continue
@@ -108,7 +107,13 @@ export function occurrenceDensity(
     }
     return sum
   })
-  return normalize(raw)
+  // 飽和式密度：k0 取非零 KDE 的 satPct 分位 → 「有聚落就算數」，不以點多寡論，
+  // 讓蘭嶼這種點少但集中的真實漁場，不被北部點多的海域全域正規化壓掉。
+  const nz = kde.filter((v) => v > 0).sort((a, b) => a - b)
+  const k0 = nz.length
+    ? Math.max(nz[Math.min(nz.length - 1, Math.floor(nz.length * satPct))], 1e-6)
+    : 1
+  return kde.map((v) => v / (v + k0))
 }
 
 /**
@@ -170,9 +175,8 @@ function diff(
 }
 
 /**
- * 魚場分數 = 同學環境適合度(envSuit) × 歷史出現密度(gate)，標準化 0–1。
+ * 魚場分數 = 同學環境適合度(envSuit) × 歷史出現密度(飽和式 gate)，標準化 0–1。
  * 相乘(而非相加)：唯有「環境合適」且「歷史會出現」兩者同時成立才高分 → 熱區自然收緊、貼近真實漁場。
- * densityFloor 保留無出現點處的微弱底色，避免整圖全黑；但因低於門檻不會形成核心。
  */
 export function fishScore(
   envSuit: (number | null)[],
@@ -180,13 +184,10 @@ export function fishScore(
   opts: ScoreOptions = {},
 ): number[] {
   const suitMax = opts.suitMax ?? 100
-  const exp = opts.densityExp ?? 1
-  const floor = opts.densityFloor ?? 0.15
+  // density 已是飽和式 0–1；直接相乘 gate(環境合適 且 歷史會出現)，再標準化。
   const raw = envSuit.map((s, i) => {
     if (s == null || s <= 0) return 0
-    const env = Math.max(0, Math.min(1, s / suitMax))
-    const dens = floor + (1 - floor) * Math.pow(Math.max(0, density[i] ?? 0), exp)
-    return env * dens
+    return Math.max(0, Math.min(1, s / suitMax)) * (density[i] ?? 0)
   })
   return normalize(raw)
 }
@@ -202,9 +203,10 @@ export function extractCores(
   step: number,
   opts: CoreOptions = {},
 ): HotCore[] {
-  const topPct = opts.topPct ?? 0.12
+  const topPct = opts.topPct ?? 0.1
   const confMin = opts.confMin ?? 0.3
   const minSize = opts.minSize ?? 2
+  const maxCells = opts.maxCells ?? 40
   const erode = opts.erode ?? true
 
   const cand = scores
@@ -255,9 +257,36 @@ export function extractCores(
       }
     }
     if (group.length < minSize) continue
-    cores.push(buildCore(group, scores, cells, step))
+    cores.push(buildCore(capCore(group, scores, nb, maxCells), scores, cells, step))
   }
   return cores.sort((a, b) => b.peak - a.peak)
+}
+
+/** 核心過大時，自峰值格往外、優先納入相鄰高分格，限制在 maxCells 內(避免巨型 blob)。 */
+function capCore(
+  group: number[],
+  scores: number[],
+  nb: (i: number) => number[],
+  maxCells: number,
+): number[] {
+  if (group.length <= maxCells) return group
+  const gs = new Set(group)
+  const peak = group.reduce((a, b) => (scores[b] > scores[a] ? b : a), group[0])
+  const out: number[] = []
+  const vis = new Set<number>([peak])
+  const queue: number[] = [peak]
+  while (queue.length && out.length < maxCells) {
+    const cur = queue.shift() as number
+    out.push(cur)
+    const next = nb(cur)
+      .filter((j) => gs.has(j) && !vis.has(j))
+      .sort((a, b) => scores[b] - scores[a])
+    for (const j of next) {
+      vis.add(j)
+      queue.push(j)
+    }
+  }
+  return out
 }
 
 function buildCore(
