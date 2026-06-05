@@ -1,11 +1,14 @@
 import { useAppStore } from '@/store/useAppStore'
 import { useFishingData } from '@/data/useData'
+import { heat } from '@/map/layers/nowMath'
 import SpeciesCard from './now/SpeciesCard'
 import StationTable from './now/StationTable'
 import SstChart from './now/SstChart'
 
-const heatBar =
-  'linear-gradient(90deg,rgb(46,147,108),rgb(240,162,2),rgb(215,38,61))'
+const heatBar = `linear-gradient(90deg, ${Array.from({ length: 10 }, (_, i) => {
+  const [r, g, b] = heat(i * 10)
+  return `rgb(${r},${g},${b}) ${i * 10}% ${(i + 1) * 10}%`
+}).join(',')})`
 
 export default function NowPanel() {
   const species = useAppStore((s) => s.species)

@@ -8,10 +8,12 @@ import {
 } from '@deck.gl/layers'
 import type { Layer } from '@deck.gl/core'
 import type { FishCell, Species, Station } from '@/data/contracts'
-import { suit, heat, colorFor, bearingDeg, dirName } from './nowMath'
+import { suit, heat, colorFor, bearingDeg, dirName, scoreBand } from './nowMath'
 
 const HOT_THR = 70
 const ccwFromBearing = (bearing: number): number => (360 - bearing) % 360
+const hotAlpha = (value: number): number =>
+  Math.round(54 + ((Math.max(HOT_THR, scoreBand(value)) - HOT_THR) / (90 - HOT_THR)) * 42)
 
 const DRIFT_SVG =
   "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14'><polygon points='5,0 9,13 5,10 1,13' fill='white'/></svg>"
@@ -33,7 +35,10 @@ export function suitabilityGridLayer(
 ): Layer {
   const half = step / 2
   const cells = grid
-    .map((cell) => ({ cell, value: suit(cell.v, sp, month) }))
+    .map((cell) => ({
+      cell,
+      value: suit(cell.v, sp, month, { u: cell.u, w: cell.w, trend: cell.tr }),
+    }))
     .filter((item) => item.value > 0)
 
   return new PolygonLayer<{ cell: FishCell; value: number }>({
@@ -97,7 +102,10 @@ function clusters(
   step: number,
 ): HotCell[][] {
   const hot: HotCell[] = grid
-    .map((cell) => ({ cell, value: suit(cell.v, sp, month) }))
+    .map((cell) => ({
+      cell,
+      value: suit(cell.v, sp, month, { u: cell.u, w: cell.w, trend: cell.tr }),
+    }))
     .filter((item) => item.value >= HOT_THR)
   const byKey = new Map<string, HotCell>()
   hot.forEach((item) => byKey.set(gridKey(item.cell.lat, item.cell.lon, step), item))
@@ -146,18 +154,20 @@ export function hotZoneLayers(
   if (!groups.length) return []
   const half = step / 2
 
-  const fillCells: FishCell[] = []
-  const outline: { path: [number, number][] }[] = []
+  const fillCells: HotCell[] = []
+  const outline: { path: [number, number][]; value: number }[] = []
   const driftLines: { from: [number, number]; to: [number, number] }[] = []
   const arrows: { position: [number, number]; angle: number }[] = []
   const labels: { position: [number, number]; text: string }[] = []
 
   for (const group of groups) {
     const keys = new Set(group.map((item) => gridKey(item.cell.lat, item.cell.lon, step)))
-    for (const { cell } of group) {
-      fillCells.push(cell)
+    for (const item of group) {
+      const { cell, value } = item
+      fillCells.push(item)
       if (!keys.has(gridKey(cell.lat + step, cell.lon, step))) {
         outline.push({
+          value,
           path: [
             [cell.lon - half, cell.lat + half],
             [cell.lon + half, cell.lat + half],
@@ -166,6 +176,7 @@ export function hotZoneLayers(
       }
       if (!keys.has(gridKey(cell.lat - step, cell.lon, step))) {
         outline.push({
+          value,
           path: [
             [cell.lon - half, cell.lat - half],
             [cell.lon + half, cell.lat - half],
@@ -174,6 +185,7 @@ export function hotZoneLayers(
       }
       if (!keys.has(gridKey(cell.lat, cell.lon + step, step))) {
         outline.push({
+          value,
           path: [
             [cell.lon + half, cell.lat - half],
             [cell.lon + half, cell.lat + half],
@@ -182,6 +194,7 @@ export function hotZoneLayers(
       }
       if (!keys.has(gridKey(cell.lat, cell.lon - step, step))) {
         outline.push({
+          value,
           path: [
             [cell.lon - half, cell.lat - half],
             [cell.lon - half, cell.lat + half],
@@ -227,30 +240,42 @@ export function hotZoneLayers(
   }
 
   return [
-    new PolygonLayer<FishCell>({
+    new PolygonLayer<HotCell>({
       id: 'drift-fill',
       data: fillCells,
-      getPolygon: (cell) => [
+      getPolygon: ({ cell }) => [
         [cell.lon - half, cell.lat - half],
         [cell.lon + half, cell.lat - half],
         [cell.lon + half, cell.lat + half],
         [cell.lon - half, cell.lat + half],
       ],
-      getFillColor: [255, 208, 0, 46],
+      getFillColor: ({ value }) => {
+        const [r, g, b] = heat(value)
+        return [r, g, b, hotAlpha(value)]
+      },
       stroked: false,
       filled: true,
       pickable: false,
-      updateTriggers: { getPolygon: [sp.name, month] },
+      updateTriggers: {
+        getPolygon: [sp.name, month],
+        getFillColor: [sp.name, month],
+      },
     }),
-    new PathLayer<{ path: [number, number][] }>({
+    new PathLayer<{ path: [number, number][]; value: number }>({
       id: 'drift-outline',
       data: outline,
       getPath: (item) => item.path,
-      getColor: [255, 208, 0, 230],
+      getColor: ({ value }) => {
+        const [r, g, b] = heat(value)
+        return [r, g, b, 230]
+      },
       getWidth: 2,
       widthUnits: 'pixels',
       pickable: false,
-      updateTriggers: { getPath: [sp.name, month] },
+      updateTriggers: {
+        getPath: [sp.name, month],
+        getColor: [sp.name, month],
+      },
     }),
     new LineLayer<{ from: [number, number]; to: [number, number] }>({
       id: 'drift-line',
