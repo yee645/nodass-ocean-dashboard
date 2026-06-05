@@ -1,0 +1,62 @@
+.nodass-map-popup.maplibregl-popup {
+  z-index: 720;
+  color: #eef6ff;
+  font:
+    0.82rem/1.55 'Microsoft JhengHei',
+    'Segoe UI',
+    sans-serif;
+}
+
+.nodass-map-popup .maplibregl-popup-content {
+  min-width: 190px;
+  padding: 10px 34px 10px 12px;
+  border: 1px solid rgba(117, 151, 205, 0.95);
+  border-radius: 8px;
+  background: rgba(13, 27, 48, 0.96);
+  color: #eef6ff;
+  box-shadow:
+    0 16px 42px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: blur(8px);
+}
+
+.nodass-map-popup .maplibregl-popup-content b {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.nodass-map-popup .maplibregl-popup-close-button {
+  top: 5px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #b8c9df;
+  font-size: 18px;
+  line-height: 20px;
+}
+
+.nodass-map-popup .maplibregl-popup-close-button:hover {
+  background: rgba(47, 111, 237, 0.22);
+  color: #ffffff;
+}
+
+.nodass-map-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.nodass-map-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.nodass-map-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip {
+  border-top-color: rgba(13, 27, 48, 0.96);
+}
+
+.nodass-map-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.nodass-map-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.nodass-map-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-bottom-color: rgba(13, 27, 48, 0.96);
+}
+
+.nodass-map-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: rgba(13, 27, 48, 0.96);
+}
+
+.nodass-map-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: rgba(13, 27, 48, 0.96);
+}

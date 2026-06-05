@@ -188,6 +188,19 @@ def build() -> None:
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
 
+    # 另輸出 JSON 供 React 前端(web/)fetch，內容與內嵌資料一致（功能零退化）
+    payload = {
+        "meta": {"month": month, "step": GRID_STEP, "generated": generated},
+        "species": SPECIES,
+        "stations": sst_st,
+        "grid": grid,
+        "times": times,
+    }
+    out_json = DATA_DIR / "sdm" / "fishing_grid.json"
+    out_json.parent.mkdir(exist_ok=True)
+    out_json.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                        encoding="utf-8")
+
     print(f"已產生 {OUT}  有效站數={len(sst_st)}  魚種={len(SPECIES)}  "
           f"細網格={len(grid)}(step={GRID_STEP}°)  海流站={len(u_pts)}  月份={month}")
 

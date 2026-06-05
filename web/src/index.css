@@ -1,0 +1,157 @@
+@import 'tailwindcss';
+
+/* === NODASS / CWA 海象平台 設計 token（移植自 dashboard_common.py SHARED_CSS） ===
+   Tailwind v4 以 @theme 內的 --color-* 自動產生 bg-/text-/border- 等工具類。 */
+@theme {
+  --color-base: #0e1726; /* 全域底色 */
+  --color-panel: #15233b; /* 面板底 */
+  --color-panel-2: #11203a; /* 控制列底 */
+  --color-surface: #1c2c46; /* 按鈕/晶片底 */
+  --color-border: #24344f; /* 一般邊框 */
+  --color-border-strong: #2f456b; /* 強調邊框 */
+  --color-ink: #e8eef7; /* 主文字 */
+  --color-ink-bright: #eaf2ff; /* 標題亮字 */
+  --color-muted: #9fb3c8; /* 次要文字 */
+  --color-muted-2: #8aa0b8; /* 註解文字 */
+  --color-accent: #2f6fed; /* 主強調(藍) */
+  --color-ok: #2e933c; /* 魚種選取(綠) */
+  --color-ok-bg: #13361f; /* 魚種選取底 */
+  --color-ok-ink: #eafff0;
+  --color-gold: #ffd27f; /* 風/警示 */
+  --color-mapbg: #0a1a2e; /* 地圖底 */
+
+  --font-sans: 'Microsoft JhengHei', 'Segoe UI', sans-serif;
+}
+
+/* 全螢幕地圖版型(對應舊版 html.cwa)：html/body 滿版、不捲動 */
+html {
+  font-size: clamp(13px, 0.55vw + 11px, 17px);
+  height: 100%;
+}
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 低調時間軸滑桿：細軌道 + 小滑塊（hover 才略放大） */
+.slim-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(159, 179, 200, 0.35);
+}
+.slim-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cfe0f5;
+  border: none;
+  transition: transform 0.15s;
+}
+.group:hover .slim-range::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  background: var(--color-accent);
+}
+.slim-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 50%;
+  background: #cfe0f5;
+}
+.slim-range::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(159, 179, 200, 0.35);
+}
+
+/* MapLibre 彈出視窗：暗色化以配合海象平台風格 */
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #456189 rgba(12, 24, 42, 0.35);
+}
+.panel-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.panel-scroll::-webkit-scrollbar-track {
+  background: rgba(12, 24, 42, 0.35);
+  border-radius: 999px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid #15233b;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6f89b6, #38547c);
+}
+.panel-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #8aa6d6, #4e70a4);
+}
+.panel-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.chip-scroll,
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3d5c86 rgba(12, 24, 42, 0.25);
+}
+.chip-scroll::-webkit-scrollbar,
+.table-scroll::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.chip-scroll::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-track {
+  background: rgba(12, 24, 42, 0.2);
+  border-radius: 999px;
+}
+.chip-scroll::-webkit-scrollbar-thumb,
+.table-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #3d5c86;
+}
+.chip-scroll::-webkit-scrollbar-thumb:hover,
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: #5f7fad;
+}
+.chip-scroll::-webkit-scrollbar-corner,
+.table-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.maplibregl-popup-content {
+  background: #15233b;
+  color: #e8eef7;
+  border: 1px solid #2f456b;
+  border-radius: 8px;
+  font:
+    0.8rem/1.55 'Microsoft JhengHei',
+    'Segoe UI',
+    sans-serif;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+.maplibregl-popup-tip {
+  border-top-color: #15233b !important;
+  border-bottom-color: #15233b !important;
+}
+.maplibregl-popup-close-button {
+  color: #9fb3c8;
+  font-size: 1.1rem;
+}
+.maplibregl-popup-close-button:hover {
+  color: #fff;
+  background: transparent;
+}
