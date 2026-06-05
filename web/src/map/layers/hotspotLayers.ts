@@ -18,11 +18,14 @@ import type { OccRaw } from '@/data/useExtras'
 import { suit } from './nowMath'
 import {
   occurrenceDensity,
+  occurrenceCount,
   confidenceFromOccurrence,
   fishScore,
   extractCores,
   type OccPoint,
 } from './hotspotModel'
+
+const MIN_PRESENCE = 2 // 核心至少需這麼多出現點(半徑內)支持，濾掉單點雜訊假核(如秋刀魚/旗魚)
 
 const ccwFromBearing = (bearing: number): number => (360 - bearing) % 360
 
@@ -70,7 +73,11 @@ export function hotspotCoreLayers(
   const density = occurrenceDensity(grid, occ, sp.name, month)
   const score = fishScore(envSuit, density)
   const conf = confidenceFromOccurrence(grid, occ, sp.name, month)
-  const cores = extractCores(score, conf, grid, step)
+  // 最小出現支持：核心需有 ≥MIN_PRESENCE 個出現點落在其格附近，否則視為單點雜訊濾掉
+  const presence = occurrenceCount(grid, occ, sp.name)
+  const cores = extractCores(score, conf, grid, step).filter((core) =>
+    core.cellIdx.some((i) => presence[i] >= MIN_PRESENCE),
+  )
   if (!cores.length) return []
 
   const half = step / 2

@@ -117,6 +117,26 @@ export function occurrenceDensity(
 }
 
 /**
+ * 每格半徑 radiusDeg 內該魚種出現點數(月份無關)，供「最小出現支持」過濾：
+ * 只用 1–2 個點就點亮的核心(如秋刀魚/旗魚單點)應被視為雜訊濾掉。
+ */
+export function occurrenceCount(
+  cells: GeoCell[],
+  occ: OccPoint[],
+  species: string,
+  opts: { radiusDeg?: number } = {},
+): number[] {
+  const r = opts.radiusDeg ?? 0.2
+  const pts = occ.filter((o) => o.species === species)
+  if (!pts.length) return cells.map(() => 0)
+  return cells.map((c) => {
+    let n = 0
+    for (const p of pts) if (distDeg(c.lat, c.lon, p.lat, p.lon) <= r) n++
+    return n
+  })
+}
+
+/**
  * 信心 0–1：每格到最近「該魚種(任何月份)出現點」的距離 → exp(-(d/scale)^2)。
  * 月份無關：只要該魚種曾在此海域出現過就有資料支持(避免把蘭嶼這類有記錄但非當月的海域當低信心)。
  */
