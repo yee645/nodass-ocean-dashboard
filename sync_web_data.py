@@ -17,6 +17,8 @@ ASSETS = [
     ("sdm/hires_grid.json", "hires_grid.json"),
     ("sdm/fishing_grid.json", "fishing_grid.json"),
     ("region_coast.json", "region_coast.json"),
+    ("sdm/ports.json", "ports.json"),                 # 第二層航線起點(漁港)
+    ("sdm/occurrences_web.json", "occurrences_web.json"),  # 第一層 KDE 用出現點
 ]
 
 

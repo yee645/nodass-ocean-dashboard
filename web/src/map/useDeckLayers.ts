@@ -14,6 +14,8 @@ import {
   hotZoneLayers,
   stationLayer,
 } from './layers/nowLayers'
+import { hotspotCoreLayers } from './layers/hotspotLayers'
+import { useOccurrences } from '@/data/useExtras'
 import { hiresGridLayer } from './layers/hiresLayer'
 import { resolveHiresKeys } from './layers/hiresMath'
 import { landMaskLayer } from './layers/landMaskLayer'
@@ -32,6 +34,7 @@ export function useDeckLayers(): Layer[] {
   const { data: forecast } = useForecastData()
   const { data: fishing } = useFishingData()
   const { data: hires } = useHiresData()
+  const { data: occ } = useOccurrences()
   const { grid: nowGrid } = useNowGrid()
 
   return useMemo<Layer[]>(() => {
@@ -75,7 +78,13 @@ export function useDeckLayers(): Layer[] {
         : null
       if (sp) {
         if (fishMove) {
-          layers.push(...hotZoneLayers(grid, sp, meta.month, meta.step))
+          // 出現點到位 → 用「核心熱區」(環境×歷史出現密度×信心，取核心，貼近真實)；
+          // 尚未載入時回退同學原本的整片熱區，避免空窗。
+          if (occ && occ.length) {
+            layers.push(...hotspotCoreLayers(grid, sp, meta.month, meta.step, occ))
+          } else {
+            layers.push(...hotZoneLayers(grid, sp, meta.month, meta.step))
+          }
         }
       }
       layers.push(stationLayer(stations, sp ? sp.name : null))
@@ -102,6 +111,7 @@ export function useDeckLayers(): Layer[] {
     forecast,
     fishing,
     hires,
+    occ,
     nowGrid,
     timeMode,
     baseField,
