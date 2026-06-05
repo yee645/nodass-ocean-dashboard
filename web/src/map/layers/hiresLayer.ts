@@ -36,9 +36,9 @@ export function hiresGridLayer(a: HiresArgs): Layer | null {
   const N = lat.length
 
   const cellOpacity = (i: number): number => {
-    if (!confDim || !conf) return 0.72
+    if (!confDim || !conf) return 0.5
     const c = conf[i]
-    return c == null || c < LOWCONF ? 0.16 : 0.72
+    return c == null || c < LOWCONF ? 0.12 : 0.5
   }
 
   const colorAt = (i: number): RGBA => {
@@ -60,7 +60,7 @@ export function hiresGridLayer(a: HiresArgs): Layer | null {
       ? (Math.log10(Math.max(0.01, v)) - cfg.lo) / (cfg.hi - cfg.lo)
       : (v - cfg.lo) / (cfg.hi - cfg.lo)
     const [r, g, b] = PALETTE[cfg.pal](t)
-    const alpha = baseField === 'conf' ? 0.72 : cellOpacity(i)
+    const alpha = baseField === 'conf' ? 0.58 : cellOpacity(i)
     return [r, g, b, Math.round(alpha * 255)]
   }
 

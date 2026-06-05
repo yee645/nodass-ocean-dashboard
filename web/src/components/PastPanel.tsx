@@ -21,7 +21,7 @@ export default function PastPanel() {
   const setSpecies = useAppStore((s) => s.setSpecies)
   const { data: hires } = useHiresData()
 
-  if (!hires) return <div className="text-[0.8rem] text-muted">資料載入中...</div>
+  if (!hires) return <div className="type-caption text-muted">資料載入中...</div>
 
   const { meta, layers } = hires
   const hasConf = meta.has_conf
@@ -94,7 +94,7 @@ export default function PastPanel() {
   return (
     <>
       <div>
-        <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+        <div className="type-section-title mb-1 text-muted">
           底圖圖層（單選）
         </div>
         <div className="flex flex-col gap-1">
@@ -105,7 +105,7 @@ export default function PastPanel() {
                 key={base.key}
                 onClick={() => setBaseField(base.key)}
                 className={
-                  'cursor-pointer rounded-lg border px-3 py-1.5 text-left text-[0.85rem] ' +
+                  'type-control cursor-pointer rounded-lg border px-3 py-1.5 text-left ' +
                   (on
                     ? 'border-accent bg-accent font-semibold text-white'
                     : 'border-border-strong bg-surface text-muted hover:text-ink')
@@ -120,7 +120,7 @@ export default function PastPanel() {
 
       {hasConf && (
         <label
-          className="flex cursor-pointer items-center gap-1 text-[0.82rem] text-ink"
+          className="type-control flex cursor-pointer items-center gap-1 text-ink"
           title={`信心度 < ${LOWCONF} 的格點會降低顯示亮度`}
         >
           <input
@@ -135,7 +135,7 @@ export default function PastPanel() {
 
       {activeField === 'habitat' && (
         <div>
-          <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+          <div className="type-section-title mb-1 text-muted">
             魚種（可複選）
           </div>
           <div className="chip-scroll flex max-h-[150px] flex-wrap gap-1.5 overflow-auto rounded-lg border border-border bg-panel-2 p-1.5">
@@ -149,7 +149,7 @@ export default function PastPanel() {
                     toggle(name)
                   }}
                   className={
-                    'flex cursor-pointer items-center gap-1.5 rounded-[14px] border px-2.5 py-1 text-[0.82rem] ' +
+                    'type-control flex cursor-pointer items-center gap-1.5 rounded-[14px] border px-2.5 py-1 ' +
                     (on
                       ? 'border-ok bg-ok-bg text-ok-ink'
                       : 'border-border-strong bg-surface text-[#cdd9e5]')
@@ -164,13 +164,13 @@ export default function PastPanel() {
           <div className="mt-1.5 flex gap-1.5">
             <button
               onClick={() => setSpecies([...names])}
-              className="cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-[0.8rem] text-muted hover:text-ink"
+              className="type-control cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-muted hover:text-ink"
             >
               全選
             </button>
             <button
               onClick={() => setSpecies([])}
-              className="cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-[0.8rem] text-muted hover:text-ink"
+              className="type-control cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-muted hover:text-ink"
             >
               清除
             </button>
@@ -182,14 +182,14 @@ export default function PastPanel() {
         {kpi.map(([key, value]) => (
           <div
             key={key}
-            className="flex-auto rounded-md bg-surface px-3 py-2 text-center text-[0.82rem]"
+            className="type-kpi-label flex-auto rounded-md bg-surface px-3 py-2 text-center text-muted"
           >
             {key}
-            <b className="block text-[clamp(1rem,1.8vw,1.2rem)]">{value}</b>
+            <b className="type-kpi-value block text-ink">{value}</b>
           </div>
         ))}
       </div>
-      <div className="text-[0.78rem] text-muted">
+      <div className="type-caption text-muted">
         {activeField === 'habitat'
           ? habitatKeys.length > 1
             ? '多魚種以每個格點最高適合度顯示'

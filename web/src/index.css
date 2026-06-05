@@ -25,7 +25,7 @@
 
 /* 全螢幕地圖版型(對應舊版 html.cwa)：html/body 滿版、不捲動 */
 html {
-  font-size: clamp(13px, 0.55vw + 11px, 17px);
+  font-size: 15px;
   height: 100%;
 }
 body {
@@ -34,12 +34,80 @@ body {
   background: var(--color-base);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-rendering: geometricPrecision;
 }
 #root {
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.type-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.type-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.type-control {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.type-caption {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.type-micro {
+  font-size: 11px;
+  line-height: 1.35;
+}
+.type-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.type-kpi-label {
+  font-size: 12px;
+  line-height: 1.25;
+}
+.type-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.type-table {
+  font-size: 12px;
+  line-height: 1.35;
+}
+.type-table-meta {
+  font-size: 11px;
+  line-height: 1.35;
+}
+.type-icon-md {
+  font-size: 16px;
+  line-height: 1;
+}
+.type-icon-lg {
+  font-size: 20px;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
+  .type-kpi-value {
+    font-size: 19px;
+  }
+  .type-table {
+    font-size: 11.5px;
+  }
 }
 
 /* 低調時間軸滑桿：細軌道 + 小滑塊（hover 才略放大） */
@@ -149,7 +217,7 @@ body {
 }
 .maplibregl-popup-close-button {
   color: #9fb3c8;
-  font-size: 1.1rem;
+  font-size: 18px;
 }
 .maplibregl-popup-close-button:hover {
   color: #fff;

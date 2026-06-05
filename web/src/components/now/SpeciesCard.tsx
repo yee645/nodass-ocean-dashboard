@@ -43,10 +43,10 @@ export default function SpeciesCard() {
 
   return (
     <div className="border-t border-border pt-2">
-      <h3 className="mb-1.5 text-[clamp(0.9rem,1.4vw,1rem)]">
+      <h3 className="type-card-title mb-1.5">
         {sp.name} - {sp.en} - {sp.sci}
       </h3>
-      <div className="text-[0.82rem] leading-[1.7]">
+      <div className="type-control leading-[1.65]">
         <div>
           適溫窗：
           <b className="text-[#ffd166]">
@@ -65,7 +65,7 @@ export default function SpeciesCard() {
         </div>
         <div className="mt-1">習性：{sp.habit}</div>
       </div>
-      <div className="mt-1.5 text-[0.82rem] text-[#9fd3ff]">
+      <div className="type-control mt-1.5 text-[#9fd3ff]">
         漂移判讀：{currentText}；近 6 小時水溫趨勢 {avgTrend > 0 ? '+' : ''}
         {avgTrend.toFixed(3)}°C/hr，{shiftText}
       </div>

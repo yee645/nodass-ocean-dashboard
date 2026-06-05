@@ -16,7 +16,7 @@ export default function LayerPanel() {
   return (
     <aside className="absolute inset-y-0 right-0 z-[600] flex w-[88vw] max-w-[360px] flex-col border-l border-border-strong bg-panel shadow-[0_8px_26px_rgba(0,0,0,.45)] md:static md:z-auto md:w-[30%] md:min-w-[300px] md:max-w-[460px] md:shadow-none">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-[10px]">
-        <h2 className="flex-1 text-[0.95rem] text-ink-bright">
+        <h2 className="type-panel-title flex-1 text-ink-bright">
           {TITLE[timeMode]}
         </h2>
         <button

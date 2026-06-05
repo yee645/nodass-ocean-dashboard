@@ -19,11 +19,11 @@ export default function StationTable() {
 
   return (
     <div className="border-t border-border pt-2">
-      <h3 className="mb-1.5 text-[clamp(0.9rem,1.4vw,1rem)]">
+      <h3 className="type-card-title mb-1.5">
         {isSp ? `${cur} 適合度排序` : '潛在漁場排序'}（點列看海溫時序）
       </h3>
       <div className="table-scroll max-h-[210px] overflow-auto rounded-md border border-border bg-panel-2/40">
-        <table className="w-full table-fixed border-collapse text-[0.78rem]">
+        <table className="type-table w-full table-fixed border-collapse">
           <thead>
             <tr className="sticky top-0 z-10 bg-panel-2 text-muted">
               <th className="w-[31%] border-b border-border px-2 py-1.5 text-left font-semibold">站名</th>
@@ -55,7 +55,7 @@ export default function StationTable() {
                   <td className="truncate border-b border-border px-2 py-1.5" title={s.name}>
                     {s.name}
                   </td>
-                  <td className="border-b border-border px-2 py-1.5 text-[0.72rem] text-[#cbd8ea]">
+                  <td className="type-table-meta border-b border-border px-2 py-1.5 text-[#cbd8ea]">
                     {s.lat.toFixed(2)},{s.lon.toFixed(2)}
                   </td>
                   <td className="border-b border-border px-2 py-1.5">{s.sst}</td>

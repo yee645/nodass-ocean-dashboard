@@ -58,9 +58,9 @@ export function gridFieldLayer(a: GridArgs): Layer {
 
   // 低信心淡化（對應舊 cellOpacity）。
   const cellOpacity = (i: number): number => {
-    if (!confDim) return 0.72
+    if (!confDim) return 0.5
     const c = conf[i]
-    return c == null || c < LOWCONF ? 0.16 : 0.72
+    return c == null || c < LOWCONF ? 0.12 : 0.5
   }
 
   const colorAt = (i: number): RGBA => {
@@ -82,7 +82,7 @@ export function gridFieldLayer(a: GridArgs): Layer {
       ? (Math.log10(Math.max(0.01, v)) - LO) / (HI - LO)
       : (v - LO) / (HI - LO)
     const [r, g, b] = PALETTE[cfg.pal](t)
-    const alpha = baseField === 'conf' ? 0.72 : cellOpacity(i)
+    const alpha = baseField === 'conf' ? 0.58 : cellOpacity(i)
     return [r, g, b, Math.round(alpha * 255)]
   }
 

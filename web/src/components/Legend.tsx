@@ -13,15 +13,15 @@ export default function Legend() {
           {kpi.map(([k, v]) => (
             <div
               key={k}
-              className="flex-auto rounded-md bg-surface px-3 py-2 text-center text-[0.82rem]"
+              className="type-kpi-label flex-auto rounded-md bg-surface px-3 py-2 text-center text-muted"
             >
               {k}
-              <b className="block text-[clamp(1rem,1.8vw,1.2rem)]">{v}</b>
+              <b className="type-kpi-value block text-ink">{v}</b>
             </div>
           ))}
         </div>
       )}
-      <div className="text-[0.78rem] text-muted">
+      <div className="type-caption text-muted">
         {fieldLabel}
         <div
           className="mt-1 h-3 w-[170px] rounded-[3px]"

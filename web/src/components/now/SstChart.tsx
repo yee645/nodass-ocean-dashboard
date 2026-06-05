@@ -36,7 +36,7 @@ export default function SstChart() {
 
   return (
     <div className="border-t border-border pt-2">
-      <h3 className="mb-1.5 text-[clamp(0.9rem,1.4vw,1rem)]">
+      <h3 className="type-card-title mb-1.5">
         {st.name} - SST 時序（近 2 天）
       </h3>
       <div className="relative h-40 w-full">

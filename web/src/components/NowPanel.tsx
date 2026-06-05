@@ -14,7 +14,7 @@ export default function NowPanel() {
   const setFishMove = useAppStore((s) => s.setFishMove)
   const { data: fishing } = useFishingData()
 
-  if (!fishing) return <div className="text-[0.8rem] text-muted">資料載入中...</div>
+  if (!fishing) return <div className="type-caption text-muted">資料載入中...</div>
   const { stations, species: speciesOptions } = fishing
   const cur = species.length ? species[0] : null
 
@@ -36,7 +36,7 @@ export default function NowPanel() {
         select(val)
       }}
       className={
-        'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[14px] border px-2.5 py-1 text-[0.82rem] transition-colors ' +
+        'type-control flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[14px] border px-2.5 py-1 transition-colors ' +
         (on
           ? 'border-accent bg-accent text-white shadow-[0_0_0_1px_rgba(255,255,255,.08)_inset]'
           : 'border-border-strong bg-surface text-[#cdd9e5] hover:border-[#4d6f9f] hover:bg-[#223756]')
@@ -50,7 +50,7 @@ export default function NowPanel() {
   return (
     <>
       <div>
-        <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+        <div className="type-section-title mb-1 text-muted">
           顯示（單選）
         </div>
         <div className="chip-scroll flex max-h-[142px] flex-wrap gap-1.5 overflow-auto rounded-lg border border-border bg-panel-2 p-1.5">
@@ -59,7 +59,7 @@ export default function NowPanel() {
         </div>
       </div>
 
-      <label className="flex cursor-pointer items-center gap-2 text-[0.82rem] text-ink">
+      <label className="type-control flex cursor-pointer items-center gap-2 text-ink">
         <input
           type="checkbox"
           checked={fishMove}
@@ -70,24 +70,24 @@ export default function NowPanel() {
       </label>
 
       <div className="grid grid-cols-4 gap-2">
-        <div className="rounded-md bg-surface px-2 py-2 text-center text-[0.78rem] text-muted">
+        <div className="type-kpi-label rounded-md bg-surface px-2 py-2 text-center text-muted">
           有效浮標
-          <b className="block text-[clamp(1rem,1.8vw,1.25rem)] text-ink">{stations.length}</b>
+          <b className="type-kpi-value block text-ink">{stations.length}</b>
         </div>
-        <div className="rounded-md bg-surface px-2 py-2 text-center text-[0.78rem] text-muted">
+        <div className="type-kpi-label rounded-md bg-surface px-2 py-2 text-center text-muted">
           {'高分站(>=60)'}
-          <b className="block text-[clamp(1rem,1.8vw,1.25rem)] text-[#ff3c63]">{hi}</b>
+          <b className="type-kpi-value block text-[#ff3c63]">{hi}</b>
         </div>
-        <div className="rounded-md bg-surface px-2 py-2 text-center text-[0.78rem] text-muted">
+        <div className="type-kpi-label rounded-md bg-surface px-2 py-2 text-center text-muted">
           SST範圍
-          <b className="block text-[clamp(1rem,1.8vw,1.25rem)] text-ink">
+          <b className="type-kpi-value block text-ink">
             {Math.min(...ssts).toFixed(1)}-{Math.max(...ssts).toFixed(1)}
           </b>
         </div>
-        <div className="rounded-md bg-surface px-2 py-2 text-center text-[0.78rem] text-muted">
+        <div className="type-kpi-label rounded-md bg-surface px-2 py-2 text-center text-muted">
           最高分
           <b
-            className="block text-[clamp(1rem,1.8vw,1.25rem)]"
+            className="type-kpi-value block"
             style={{ color: colorFor(maxV) }}
           >
             {maxV.toFixed(1)}
@@ -95,7 +95,7 @@ export default function NowPanel() {
         </div>
       </div>
 
-      <div className="text-[0.78rem] text-muted">
+      <div className="type-caption text-muted">
         {cur == null ? (
           <span>
             潛在漁場指標：

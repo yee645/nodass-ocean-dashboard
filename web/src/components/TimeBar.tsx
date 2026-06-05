@@ -85,12 +85,12 @@ function Bar({ playing, onPlay, label, value, max, onChange, ticks }: BarProps) 
       <button
         onClick={onPlay}
         title="自動播放"
-        className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-[0.72rem] text-[#cfe0f5] hover:bg-accent hover:text-white"
+        className="type-caption flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#cfe0f5] hover:bg-accent hover:text-white"
       >
         {playing ? '❙❙' : '▶'}
       </button>
       <div className="flex min-w-[min(320px,64vw)] flex-col gap-px">
-        <div className="text-center text-[0.72rem] font-medium text-muted transition-colors group-hover:text-ink-bright">
+        <div className="type-caption text-center font-medium text-muted transition-colors group-hover:text-ink-bright">
           {label}
         </div>
         <input
@@ -103,7 +103,7 @@ function Bar({ playing, onPlay, label, value, max, onChange, ticks }: BarProps) 
           className="slim-range m-0 w-full cursor-pointer accent-accent"
         />
         {/* 刻度預設隱藏，hover 才浮現，讓滑桿更低調 */}
-        <div className="flex max-h-0 justify-between overflow-hidden text-[0.62rem] text-muted opacity-0 transition-all group-hover:max-h-4 group-hover:opacity-100">
+        <div className="type-micro flex max-h-0 justify-between overflow-hidden text-muted opacity-0 transition-all group-hover:max-h-4 group-hover:opacity-100">
           {ticks.map((t, i) => (
             <span key={i}>{t}</span>
           ))}

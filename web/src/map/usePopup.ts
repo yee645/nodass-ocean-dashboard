@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import {
+  useCoast,
   useFishingData,
   useForecastData,
   useHiresData,
@@ -10,6 +11,7 @@ import { beaufort } from './palettes'
 import { LOWCONF } from './layers/fieldConfig'
 import { suit, dirName, bearingDeg } from './layers/nowMath'
 import { resolveHiresKeys } from './layers/hiresMath'
+import { cellTouchesLand, isLand } from './layers/coastMask'
 
 const empty = (value: number | null | undefined, suffix = ''): string =>
   value == null ? '-' : `${value}${suffix}`
@@ -25,6 +27,7 @@ export function usePopup(): (lng: number, lat: number) => string | null {
   const { data: forecast } = useForecastData()
   const { data: fishing } = useFishingData()
   const { data: hires } = useHiresData()
+  const { data: coast } = useCoast()
   const { grid: nowGrid } = useNowGrid()
 
   return useCallback(
@@ -76,6 +79,7 @@ export function usePopup(): (lng: number, lat: number) => string | null {
       }
 
       if (timeMode === 'now' && fishing) {
+        if (isLand(lng, lat, coast)) return null
         const { meta, species: speciesOptions } = fishing
         const grid = nowGrid ?? fishing.grid
         const cur = species.length ? species[0] : null
@@ -91,7 +95,11 @@ export function usePopup(): (lng: number, lat: number) => string | null {
         }
 
         let html = `位置 ${lat.toFixed(3)}, ${lng.toFixed(3)}`
-        if (best && bestDistance <= meta.step * 1.5) {
+        if (
+          best &&
+          bestDistance <= meta.step * 1.5 &&
+          !cellTouchesLand(best, meta.step, coast)
+        ) {
           html += `<br/>SST ${empty(best.v, '°C')}`
           html += sp
             ? `<br/>${sp.name} 棲地適合度 ${suit(best.v, sp, meta.month)} / 100`
@@ -153,6 +161,16 @@ export function usePopup(): (lng: number, lat: number) => string | null {
 
       return null
     },
-    [timeMode, baseField, leadIndex, species, forecast, fishing, hires, nowGrid],
+    [
+      timeMode,
+      baseField,
+      leadIndex,
+      species,
+      forecast,
+      fishing,
+      hires,
+      coast,
+      nowGrid,
+    ],
   )
 }

@@ -31,7 +31,7 @@ export default function FuturePanel() {
   return (
     <>
       <div>
-        <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+        <div className="type-section-title mb-1 text-muted">
           基礎圖層（互斥）
         </div>
         <div className="flex flex-col gap-1">
@@ -42,7 +42,7 @@ export default function FuturePanel() {
                 key={f.key}
                 onClick={() => setBaseField(f.key)}
                 className={
-                  'cursor-pointer rounded-lg border px-3 py-1.5 text-left text-[0.85rem] ' +
+                  'type-control cursor-pointer rounded-lg border px-3 py-1.5 text-left ' +
                   (on
                     ? 'border-accent bg-accent font-semibold text-white'
                     : 'border-border-strong bg-surface text-muted hover:text-ink')
@@ -56,14 +56,14 @@ export default function FuturePanel() {
       </div>
 
       <div>
-        <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+        <div className="type-section-title mb-1 text-muted">
           疊加圖層（可混用）
         </div>
         <div className="flex flex-wrap gap-x-3.5 gap-y-2">
           {OVERLAYS.map((o) => (
             <label
               key={o.key}
-              className="flex cursor-pointer items-center gap-1 text-[0.82rem] text-ink"
+              className="type-control flex cursor-pointer items-center gap-1 text-ink"
             >
               <input
                 type="checkbox"
@@ -75,7 +75,7 @@ export default function FuturePanel() {
             </label>
           ))}
           <label
-            className="flex cursor-pointer items-center gap-1 text-[0.82rem] text-ink"
+            className="type-control flex cursor-pointer items-center gap-1 text-ink"
             title="信心 < 0.3 的格子(遠離出現點、模型外推)降透明度標示"
           >
             <input

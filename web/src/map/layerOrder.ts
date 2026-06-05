@@ -6,8 +6,8 @@ import type { Layer } from '@deck.gl/core'
  * 索引小者在下、大者在上。
  */
 export const LAYER_ORDER = [
-  'landMask', // 陸地遮罩(最底)
   'gridField', // 純量場(互斥 base：SST/海流速/風/潮/信心/葉綠素/棲地)
+  'landMask', // 陸地遮罩：不透明填色蓋在格網上、向量/漂移/站點下，遮去格網溢出陸地
   'currentVector', // 海流向量(可混用 overlay)
   'windVector', // 風向量(可混用 overlay)
   'drift', // 魚群漂移/熱區(可混用)

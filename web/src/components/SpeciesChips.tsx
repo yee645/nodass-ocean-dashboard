@@ -19,7 +19,7 @@ export default function SpeciesChips() {
 
   return (
     <div>
-      <div className="mb-1 text-[0.78rem] font-semibold text-muted">
+      <div className="type-section-title mb-1 text-muted">
         魚種（可複選）
       </div>
       <div className="flex max-h-[150px] flex-wrap gap-1.5 overflow-auto rounded-lg border border-border bg-panel-2 p-1.5">
@@ -33,7 +33,7 @@ export default function SpeciesChips() {
                 toggle(nm)
               }}
               className={
-                'flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[14px] border px-2.5 py-1 text-[0.82rem] ' +
+                'type-control flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-[14px] border px-2.5 py-1 ' +
                 (on
                   ? 'border-ok bg-ok-bg text-ok-ink'
                   : 'border-border-strong bg-surface text-[#cdd9e5]')
@@ -48,13 +48,13 @@ export default function SpeciesChips() {
       <div className="mt-1.5 flex gap-1.5">
         <button
           onClick={() => setSpecies([...all])}
-          className="cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-[0.8rem] text-muted hover:text-ink"
+          className="type-control cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-muted hover:text-ink"
         >
           全選
         </button>
         <button
           onClick={() => setSpecies([])}
-          className="cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-[0.8rem] text-muted hover:text-ink"
+          className="type-control cursor-pointer rounded-lg border border-border-strong bg-surface px-2.5 py-1 text-muted hover:text-ink"
         >
           清除
         </button>
