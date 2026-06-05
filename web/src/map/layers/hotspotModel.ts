@@ -79,45 +79,51 @@ const monthDiff = (a: number, b: number): number => {
   return Math.min(d, 12 - d) // 循環(12 月與 1 月相差 1)
 }
 
-/** 該魚種、該季節出現點的高斯核密度(KDE)，標準化為每格 0–1。 */
+/**
+ * 該魚種出現點的高斯核密度(KDE)，標準化為每格 0–1。
+ * 月份採「柔性權重」(高斯，monthSigma)：當月附近權重最高，但**不硬切**——
+ * 避免「蘭嶼飛魚記錄在 2–5 月、6 月查不到」這類季前/季尾被整個濾掉的問題。
+ */
 export function occurrenceDensity(
   cells: GeoCell[],
   occ: OccPoint[],
   species: string,
   month: number,
-  opts: { seasonWindow?: number; bandwidthDeg?: number } = {},
+  opts: { monthSigma?: number; bandwidthDeg?: number } = {},
 ): number[] {
-  const win = opts.seasonWindow ?? 1
+  const mSigma = opts.monthSigma ?? 2 // 月份權重高斯寬度(月)
   const bw = opts.bandwidthDeg ?? 0.25
-  const pts = occ.filter(
-    (o) => o.species === species && monthDiff(o.month, month) <= win,
-  )
+  const pts = occ.filter((o) => o.species === species)
   if (!pts.length) return cells.map(() => 0)
   const inv2bw2 = 1 / (2 * bw * bw)
+  const inv2m2 = 1 / (2 * mSigma * mSigma)
+  // 預先算各點的月份權重，<0.05 直接略過(離當季太遠)
+  const wm = pts.map((p) => Math.exp(-(monthDiff(p.month, month) ** 2) * inv2m2))
   const raw = cells.map((c) => {
     let sum = 0
-    for (const p of pts) {
-      const d = distDeg(c.lat, c.lon, p.lat, p.lon)
-      if (d <= 3 * bw) sum += Math.exp(-(d * d) * inv2bw2)
+    for (let k = 0; k < pts.length; k++) {
+      if (wm[k] < 0.05) continue
+      const d = distDeg(c.lat, c.lon, pts[k].lat, pts[k].lon)
+      if (d <= 3 * bw) sum += wm[k] * Math.exp(-(d * d) * inv2bw2)
     }
     return sum
   })
   return normalize(raw)
 }
 
-/** 信心 0–1：每格到最近(該魚種同季)出現點的距離 → exp(-(d/scale)^2)。遠離資料=低信心(外推)。 */
+/**
+ * 信心 0–1：每格到最近「該魚種(任何月份)出現點」的距離 → exp(-(d/scale)^2)。
+ * 月份無關：只要該魚種曾在此海域出現過就有資料支持(避免把蘭嶼這類有記錄但非當月的海域當低信心)。
+ */
 export function confidenceFromOccurrence(
   cells: GeoCell[],
   occ: OccPoint[],
   species: string,
-  month: number,
-  opts: { seasonWindow?: number; scaleDeg?: number } = {},
+  _month: number,
+  opts: { scaleDeg?: number } = {},
 ): number[] {
-  const win = opts.seasonWindow ?? 2
   const scale = opts.scaleDeg ?? 0.3
-  const pts = occ.filter(
-    (o) => o.species === species && monthDiff(o.month, month) <= win,
-  )
+  const pts = occ.filter((o) => o.species === species)
   if (!pts.length) return cells.map(() => 0)
   return cells.map((c) => {
     let near = Infinity
