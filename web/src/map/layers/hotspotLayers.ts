@@ -101,10 +101,13 @@ export function hotspotCoreLayers(
       position: [cLon, cLat],
       text: `魚群熱區${core.drift ? `·往${core.drift.dir}` : ''}`,
     })
-    if (core.drift && core.drift.spd > 0.001) {
-      const scale = 0.9
-      const lat2 = cLat + (core.drift.spd * Math.cos((core.drift.deg * Math.PI) / 180)) * scale
-      const lon2 = cLon + (core.drift.spd * Math.sin((core.drift.deg * Math.PI) / 180)) * scale
+    // 海流方向(可能漂移)：短而有界的方向箭頭，貼著核心(不再用流速×大係數的長向量，
+    // 以免在縮小後的核心上射出老遠、看似與熱區無關)；流速太小(近乎無流)就不畫，避免亂指。
+    if (core.drift && core.drift.spd > 0.02) {
+      const rad = (core.drift.deg * Math.PI) / 180
+      const len = Math.min(0.11, 0.05 + core.drift.spd * 0.12) // 度：短、輕微隨流速、上限約 12km
+      const lat2 = cLat + Math.cos(rad) * len
+      const lon2 = cLon + Math.sin(rad) * len
       driftLines.push({ from: [cLon, cLat], to: [lon2, lat2] })
       arrows.push({ position: [lon2, lat2], angle: ccwFromBearing(core.drift.deg) })
     }
