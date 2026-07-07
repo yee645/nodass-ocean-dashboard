@@ -167,6 +167,22 @@ def main():
             "leads": [{"d": d, "valid": v.strftime("%Y-%m-%d %H:%M")} for _, d, v in leads],
             "source": "中央氣象署 OCM 海流模式(SST/海流/風/潮位) + NODASS/GOCI 葉綠素氣候平均"}
     meta["has_conf"] = any(c is not None for c in conf)
+    # P2 第二階段：CWA 波浪(示性波高 Hs)——有 .cwa_token 或快取才接入，否則優雅跳過(零回歸)
+    meta["has_wave"] = False
+    try:
+        import fetch_cwa_wave as WAVE
+        stations = WAVE.load_or_fetch()
+        if stations:
+            lead_valids = {d: v.strftime("%Y-%m-%d") for _, d, v in leads}
+            hs_grid = WAVE.to_grid(stations, cells, lead_valids)
+            if any(any(x is not None for x in c) for c in hs_grid.values()):
+                for dday in [d for _, d, _ in leads]:
+                    data[str(dday)]["hs"] = hs_grid.get(str(dday))
+                meta["has_wave"] = True
+                meta["source"] += " + 中央氣象署波浪預報(示性波高 Hs)"
+                print(f"  波浪 Hs 已接入：{len(stations)} 站 IDW 上網格")
+    except Exception as e:  # noqa: BLE001
+        print("波浪接入略過：", type(e).__name__, str(e)[:80])
     payload = {"meta": meta, "cells": cells, "chl": col(chl, 3), "conf": conf, "data": data}
     OUT_JSON.parent.mkdir(exist_ok=True)
     OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
@@ -184,8 +200,10 @@ MODAL_BODY = """
   絕對風力請以中央氣象署陸上/海上強風特報為準。<br/><br/>
   <b>棲地</b>：適合度=適溫隸屬 × 季節 × 餌料因子(GOCI 當月氣候平均葉綠素)；海流向量示意魚群可能漂移。
   <b>資料信心</b>：每格依到最近物種出現點距離換算 0–1(遠離資料處模型外推、信心低)，可單看信心層或勾「低信心淡化」。<br/><br/>
-  <b>限制</b>：可及天數受預報長度限制；葉綠素為氣候平均(非當日)；<b>波浪示性波高(Hs)不在 OCM</b>，
-  待接中央氣象署波浪預報 API(免費金鑰，P2 第二階段)，現況波浪請見「極端浪況預警」即時浮標頁；
+  <b>波浪</b>：示性波高(Hs)不在 OCM，改接中央氣象署波浪/沿海預報開放資料，以 IDW 內插為
+  <b>Hs (m)</b> 圖層(設定免費金鑰 .cwa_token 後於重建時自動啟用；未設定則本頁不顯示波浪層，
+  即時波浪仍可見「極端浪況預警」浮標頁)。<br/><br/>
+  <b>限制</b>：可及天數受預報長度限制；葉綠素為氣候平均(非當日)；波浪為沿海海區預報之空間內插；
   本層為環境/棲地預報非漁獲量。<b>出海安全正式以中央氣象署官方海象/漁業氣象與海巡署警報為準</b>。
   資料來源須註明中央氣象署 OCM 與 GOCI。對齊 SDG 14。
   </div>
@@ -311,10 +329,12 @@ const BASE=[['sst','海溫 SST (°C)',18,30,'lin','jet'],
   ['cspd','海流速 (m/s)',0,1.5,'lin','jet'],
   ['ws','風速 (m/s，模式場)',null,null,'lin','wind'],
   ['wl','潮位 (m)',-1.2,1.2,'lin','tide'],
+  ['hs','示性波高 Hs (m)',0,4,'lin','jet'],
   ['conf','資料信心(出現點支持)',0,1,'lin','conf'],
   ['chl','葉綠素氣候平均 (mg/m³)',-1.3,0.5,'log','jet'],
   ['habitat','棲地適合度(選魚種)',0,100,'lin','jet']];
 if(!meta.has_conf){const ci=BASE.findIndex(b=>b[0]==='conf');if(ci>=0)BASE.splice(ci,1);}
+if(!meta.has_wave){const wi=BASE.findIndex(b=>b[0]==='hs');if(wi>=0)BASE.splice(wi,1);}
 let baseKey='sst', leadKey=String(meta.leads[0].d);
 const checked=new Set(meta.species.slice(0,2).map(nm=>nm));
 

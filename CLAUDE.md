@@ -59,8 +59,10 @@
   - P1.5（已部分完成）：**跨時段魚種選擇保留**已做（postMessage 同步，三子頁適配器 + 平台中繼）。
     尚餘「單一地圖、地圖不重載」之完整深度整合（各子頁資料 schema 不同，屬較大改寫）。
 - **P2（已完成風/流/潮）**：未來海象安全層——forecast 頁加 OCM **風速/風向(WS/WD)、潮位(WL)** 圖層與風向量
-    （公開免授權，已驗證）；介面參考 ocean.cwa.gov.tw。波浪 Hs 不在 OCM，`fetch_cwa_wave.py` scaffold 就緒，
-    需 `.cwa_token`（CWA 開放資料免費金鑰）啟用後接入。
+    （公開免授權，已驗證）；介面參考 ocean.cwa.gov.tw。波浪 Hs 不在 OCM，已由 `fetch_cwa_wave.py`
+    接入 forecast 頁（解析+IDW 上網格已以 mock 驗證；build_forecast 以 `has_wave` gated，設定
+    `.cwa_token`（CWA 開放資料免費金鑰）重建時自動顯示 **Hs (m)** 圖層，未設定則不顯示、零回歸）。
+    離線韌性：地圖底圖 tile 若載入失敗，`.leaflet-container` 已改海洋藍底 + 內嵌海岸線自繪，不再變黑底。
 - **P3（已完成信心層）**：**資料信心圖層**已做於 hires 與 forecast（每格到最近出現點距離 → 0–1 信心，
     RdYlGn 色階 + 低信心淡化，已驗證）。GFW 船隊熱區 `fetch_gfw.py` scaffold 就緒，需 `.gfw_token` 啟用。
 - **P4（質變，需資料）**：取得漁業署漁獲/VMS/CPUE → 把棲地升級為驗證過的漁獲潛勢/CPUE 預測。
