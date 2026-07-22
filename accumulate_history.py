@@ -16,7 +16,7 @@ import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
 
-DATA_DIR = Path(r"D:\nodass")
+DATA_DIR = Path(__file__).resolve().parent      # 專案根(相對於本檔)，取代舊硬編絕對路徑
 HIST = DATA_DIR / "history.csv"
 BASE = "https://nodass.namr.gov.tw/noapi/namr/v1"
 STATION_FILES = ["stations_NAMR.json", "stations_CWA.json", "stations_IHMT.json"]
