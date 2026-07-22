@@ -42,6 +42,8 @@
   h3{font-size:clamp(0.9rem,1.4vw,1rem);}
   .chartbox{position:relative;height:200px;width:100%;}
   canvas{background:#0e1726;border-radius:6px;}
+  /* 海洋藍底：底圖 tile 若因離線/網路受限載入失敗，海域仍讀作「海」，
+     搭配內嵌海岸線自繪陸地，確保離線展示地圖不致變黑底 */
   .leaflet-container{background:#123a5e;}
   /* 分段按鈕(單選):比下拉更直觀、可一眼看到所有選項 */
   .seg{display:inline-flex;flex-wrap:wrap;gap:4px;}
@@ -147,7 +149,7 @@
     <div class="lpane-title">NODASS 全台浮標極端浪況即時預警</div>
     <button class="lpane-x" id="leftCollapse" title="收合" aria-label="收合">&times;</button>
   </div>
-  <div class="lpane-sub">國家海洋資料庫及共享平臺（NODASS）開放浮標 API｜逐時資料近兩日｜產生 2026-07-22 15:21</div>
+  <div class="lpane-sub">國家海洋資料庫及共享平臺（NODASS）開放浮標 API｜逐時資料近兩日｜產生 2026-07-22 15:41</div>
   <div class="tabs"><a class="active" target="_top" href="index.html">極端浪況預警</a><a class="" target="_top" href="platform.html">漁場棲地平台（過去·現在·未來）</a></div>
 </div>
 <div class="stage">
