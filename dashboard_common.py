@@ -145,7 +145,9 @@ SHARED_CSS = """
   h3{font-size:clamp(0.9rem,1.4vw,1rem);}
   .chartbox{position:relative;height:200px;width:100%;}
   canvas{background:#0e1726;border-radius:6px;}
-  .leaflet-container{background:#0a1a2e;}
+  /* 海洋藍底：底圖 tile 若因離線/網路受限載入失敗，海域仍讀作「海」，
+     搭配內嵌海岸線自繪陸地，確保離線展示地圖不致變黑底 */
+  .leaflet-container{background:#123a5e;}
   /* 分段按鈕(單選):比下拉更直觀、可一眼看到所有選項 */
   .seg{display:inline-flex;flex-wrap:wrap;gap:4px;}
   .seg button{background:#1c2c46;color:#9fb3c8;border:1px solid #2f456b;border-radius:8px;
