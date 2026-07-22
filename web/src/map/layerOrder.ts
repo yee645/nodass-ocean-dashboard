@@ -12,7 +12,8 @@ export const LAYER_ORDER = [
   'windVector', // 風向量(可混用 overlay)
   'drift', // 魚群漂移/熱區(可混用)
   'occurrence', // 物種出現點(可混用)
-  'buoy', // 浮標站點(可混用，最上)
+  'buoy', // 浮標站點(可混用)
+  'route', // 第二層航線規劃結果(可混用，最上)
 ] as const
 
 export type LayerId = (typeof LAYER_ORDER)[number]

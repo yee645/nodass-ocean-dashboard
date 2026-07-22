@@ -4,6 +4,7 @@ import LeftPanel from '@/components/LeftPanel'
 import LayerPanel from '@/components/LayerPanel'
 import TimeBar from '@/components/TimeBar'
 import { usePopup } from '@/map/usePopup'
+import { useRoutePicking } from '@/map/useRoutePicking'
 
 // 地圖模組(MapLibre + deck.gl)較重，lazy-load 以縮小首屏 bundle。
 const MapView = lazy(() => import('@/map/MapView'))
@@ -14,6 +15,7 @@ const MapView = lazy(() => import('@/map/MapView'))
  */
 export default function App() {
   const resolvePopup = usePopup()
+  const onMapClick = useRoutePicking()
   const collapsed = useAppStore((s) => s.layerPanelCollapsed)
   const toggle = useAppStore((s) => s.toggleLayerPanel)
 
@@ -28,7 +30,7 @@ export default function App() {
             </div>
           }
         >
-          <MapView resolvePopup={resolvePopup} />
+          <MapView resolvePopup={resolvePopup} onMapClick={onMapClick} />
         </Suspense>
 
         <LeftPanel />
@@ -37,7 +39,7 @@ export default function App() {
         <div className="type-caption pointer-events-none absolute bottom-3 left-3 z-[550] max-w-[min(420px,52vw)] rounded-[10px] border border-border-strong bg-panel/80 px-3 py-2 text-[#c2d2e6] backdrop-blur-sm max-md:hidden">
           出航前參考：海象與環境為決策參考，正式以
           <b className="text-gold">中央氣象署官方海象/漁業氣象與海巡署警報</b>
-          為準。
+          為準。航線規劃未涵蓋軍事管制水域，正式航行請以海巡署公告為準。
         </div>
 
         {/* 側欄收合時的重開鈕 */}

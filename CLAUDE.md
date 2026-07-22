@@ -8,10 +8,21 @@
 作為漁民出航前的**決策參考平台**（非漁獲保證、非官方海象警報）。
 
 ## 快速開始
-- 看成果：直接開 `dashboard/platform.html`（自含式，免後端）。線上：https://yee645.github.io/nodass-ocean-dashboard/
+- 看成果（目前線上部署版，穩定）：直接開 `dashboard/platform.html`（自含式，免後端）。線上：https://yee645.github.io/nodass-ocean-dashboard/
 - 依賴：`pip install -r requirements.txt`（numpy / scipy / Pillow / PyMuPDF）。網路請求用標準庫 urllib。
 - 一鍵重建（開放資料）：`bash setup.sh`（或 `pwsh setup.ps1`）。
 - 平台 = `dashboard/platform.html`，以 iframe 整合三個棲地子頁 + 極端浪況頁。
+- `web/` 為進行中的 React SPA 重構（見下方專節），**尚未部署**，`dashboard/*.html` 仍是現行對外版本，開發時勿誤刪。
+
+## 開發指令
+- Python 管線：無 lint/test 設定；各頁重建指令見下方「執行順序」。
+- React 前端（`web/`）：
+  - `cd web && npm install`（首次）
+  - `npm run dev`：本機開發伺服器（Vite，含 HMR）
+  - `npm run build`：`tsc -b && vite build`，型別檢查 + 產出 `web/dist`
+  - `npm run lint`：ESLint（flat config，`typescript-eslint` + `react-hooks` + `react-refresh`）
+  - `npm run preview`：預覽 production build
+  - 無測試指令/測試檔（目前無自動化測試）。
 
 ## 資料存取地圖（最關鍵的「思維」，先懂這個）
 | 來源 | 用途 | 存取 | 範圍/時間 |
@@ -37,6 +48,7 @@
   - `build_platform.py` → `dashboard/platform.html`：整合入口。
 - **共用**：`dashboard_common.py`（SHARED_CSS、nav_html、海岸線遮罩 on_land、IDW、海岸線）。
 - **資料管線**：`fetch_buoys.py`、`fetch_satellite.py`+`sat_digitize.py`（衛星數位化）、`fetch_ocm_forecast.py`（CWA OCM）、`fetch_tfrin_env.py`（TFRIN PDF）、`build_occurrences.py`（整併物種出現點）、`build_sdm.py`（presence-only 高斯包絡 SDM）。
+- **航線規劃（第二層）資料**：`build_ports.py`（漁港起點 `sdm/ports.json`）、`build_bathymetry.py`（GEBCO 水深重取樣 `sdm/bathymetry.json`，**需人工下載一次原始檔**，見下方 gitignored 資料）、`fetch_conservation_zones.py`（漁業資源保育區文字座標解析 `sdm/restricted_zones.json`，含人工抽查機制）。
 - **魚種習性**：`species_traits.py`（10 種經濟魚種適溫窗、季節、習性）。
 - `live_update.py`：fetch_buoys → accumulate_history → build_dashboard → build_fishing。
 - `make_region_coast.py`：由 Natural Earth 產生 `region_coast.json`（含中國大陸沿海，供陸地遮罩/底圖）。
@@ -47,6 +59,21 @@
 3. `python build_forecast.py`（自動抓 CWA OCM + GOCI，需網路）
 4. `python build_platform.py`
 5.（選用）`build_occurrences.py` 需 `data/` 原始生物資料；其輸出 `sdm/occurrences.csv` 已上傳，故 `build_sdm.py`/`build_hires.py` 不需原始資料即可跑。
+6.（開發 `web/` 時）`python sync_web_data.py`：把 `sdm/forecast_grid.json`、`sdm/hires_grid.json`、`sdm/fishing_grid.json`、`region_coast.json`、`sdm/ports.json`、`sdm/occurrences_web.json`、`sdm/bathymetry.json`、`sdm/restricted_zones.json` 複製到 `web/public/data/`，React 端才吃得到新資料。尚未併入 `setup.sh`，Python 產物更新後需手動執行。
+
+## React 前端（`web/`）— 重構進行中，尚未部署
+> 目標：功能/API 與現有 `dashboard/*.html` **1:1 一致**，只做美化與加速；科學計算仍在 Python，TS 端不重算。
+
+- **技術棧**：Vite + React 19 + TypeScript + Tailwind v4 + Zustand（狀態）+ TanStack Query（資料 fetch）+ Chart.js(`react-chartjs-2`)。
+- **地圖引擎**：MapLibre GL（底圖）+ deck.gl `MapboxOverlay`（所有資料圖層，WebGL），取代舊版 Leaflet。
+- **頁面拓樸**：單一 SPA、共用一張地圖（取消舊版 iframe + postMessage）。三時段（過去/現在/未來）切換不重載地圖，魚種選擇跨時段共享於 Zustand。
+- **資料流**：Python `build_*.py` 只負責產出靜態 JSON（`sdm/*.json`）→ `sync_web_data.py` 複製到 `web/public/data/` → React `useData.ts`（TanStack Query）fetch 消費。JSON schema 的權威定義在 `web/src/data/contracts.ts`（對齊 `build_forecast.py`/`build_fishing.py`/`build_hires.py` 輸出），改動 Python 輸出欄位時務必同步更新此檔。
+- **狀態核心**：`web/src/store/useAppStore.ts`（Zustand）—— `timeMode`(past/now/future)、互斥的 `baseField`(純量場單選)、可複選的 `overlays`(海流/風向量/出現點/浮標)、跨時段共享的 `species`。`modes/modeConfig.ts` 存三時段中繼資料（對應舊 `platform.html` 的 `MODES`）。
+- **圖層堆疊**：`map/layerOrder.ts` 的 `LAYER_ORDER` 陣列即權威 z-order（取代 Leaflet pane），圖層 id 需以此陣列項目為前綴（例 `gridField-sst`）。區分「互斥 base（純量場單選）」vs「可混用 overlay（向量/出現點/浮標複選）」；低信心淡化是修飾子（`confDim`），非獨立圖層。
+- **關鍵目錄**：`web/src/map/layers/`（各圖層建構，如 `hotspotLayers.ts`/`hotspotModel.ts` 為魚群熱區連通分群+漂移、`hiresMath.ts`/`nowMath.ts` 為 TS 端純函式數值處理、`routeLayer.ts` 畫航線）；`web/src/components/`（`LeftPanel`/`LayerPanel`/`TimeBar` 等殼層 UI，`now/` 子目錄為現在時段的時序圖/站點表/航線規劃面板）。
+- **航線規劃（第二層，僅「現在」時段）**：`map/route/costGrid.ts`（`fish`/`short`/`safe`/`fuel` 四種目標成本場）+ `astar.ts`（0.05° 網格 8 鄰接 A*，純函式）+ `routeCells.ts`（把 `fishing_grid` 併入水深/保育區/陸地限制組成 `RouteCell[]`）+ `components/now/RoutePanel.tsx`（起訖點/目標/吃水/續航 UI）。起點可選漁港（`sdm/ports.json`）或瀏覽器定位；終點於地圖點選（`useRoutePicking.ts` 攔截 `MapView` 點擊）。範圍限於 `fishing_grid` 覆蓋（浮標 120km 內），**不含軍事管制水域**（無開放結構化資料，見免責文案）。
+- **部署**：`vite.config.ts` 的 `base` 依 `command` 切換（dev=`/`，build=`/nodass-ocean-dashboard/`），與現行 GitHub Pages 路徑對齊，但**尚未實際部署**——過渡期 `dashboard/*.html` 保留可回退，待人工於分支驗證無衝突後才切換 Pages 來源。
+- 已知 gotcha：MapLibre 會在容器加上 `.maplibregl-map` class 蓋過 Tailwind `.absolute`（同特異度、MapLibre CSS 在後），需外層 `absolute inset-0` + 內層 `h-full w-full` 兩層 div 分工，另搭 `ResizeObserver` 呼叫 `map.resize()` 處理 RWD。
 
 ## 誠實準確度（寫報告與對使用者溝通時務必照實）
 - 高解析 SDM：**空間分塊交叉驗證 AUC 0.75–0.90**（17 種，與隨機 CV 接近，非空間自相關假象）。
@@ -64,6 +91,9 @@
 - **P3（已完成信心層）**：**資料信心圖層**已做於 hires 與 forecast（每格到最近出現點距離 → 0–1 信心，
     RdYlGn 色階 + 低信心淡化，已驗證）。GFW 船隊熱區 `fetch_gfw.py` scaffold 就緒，需 `.gfw_token` 啟用。
 - **P4（質變，需資料）**：取得漁業署漁獲/VMS/CPUE → 把棲地升級為驗證過的漁獲潛勢/CPUE 預測。
+- **航線規劃第二層（已完成，僅「現在」時段）**：`web/` 內 A* 航線規劃（陸地/波高/逆流/魚場/水深/保育區），
+    見上方「React 前端」專節。未來時段擴充待 `fetch_cwa_wave.py`（示性波高預報）接入後才有意義；
+    軍事管制水域待未來找到結構化開放資料再補。
 
 ## gitignored 資料（clone 後會缺，及**下載連結/重抓方式**）
 - `data/gbif_taiwan_fish.csv`（魚種出現點）：
@@ -74,6 +104,14 @@
   - 來源：TaiBIF IPT https://ipt.taibif.tw 、GBIF 資料集搜尋 https://www.gbif.org/dataset/search（底拖=bottom_trawl、深海=deep-sea-fishes）。
   - 註：**僅 `build_occurrences.py` 需要這些原始檔**；其輸出 `sdm/occurrences.csv` 已隨庫提供，下游 `build_sdm`/`build_hires` 不需原始資料。
 - `_sat_cache/`、`_tfrin_pdf/`：由 `fetch_satellite.py`/`fetch_tfrin_env.py` 自動重抓（開放、免金鑰）。
+- `_bathy_cache/gebco.asc`（GEBCO 水深原始網格）：
+  - GEBCO 無可直接打 bbox 的公開 API（OPeNDAP 走 CEDA 需帳號），**需人工下載一次**：開
+    https://download.gebco.net/ ，用內建 bounding box 工具框 `lon 117~123, lat 20~27`，
+    格式選 **Esri ASCII raster (.asc)**，存成 `_bathy_cache/gebco.asc`。
+  - 之後執行 `python build_bathymetry.py` 產生 `sdm/bathymetry.json`；水深是靜態資料，只需做一次。
+- `sdm/restricted_zones_manual.json`（選用）：`fetch_conservation_zones.py` 自動解析不出座標的
+  漁業資源保育區記錄會印到 stdout，人工查證後可手動整理成同格式（`[{name, county, level, polygon}]`）
+  存這個檔，腳本會自動合併進 `sdm/restricted_zones.json`。
 - `.nodass_token`：機密，勿外流；目前所有管線都用開放源，不需它。
 
 ## 專案慣例（沿用 owner 的全域規則；協作 agent 請遵守）

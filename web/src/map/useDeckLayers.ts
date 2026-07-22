@@ -19,6 +19,7 @@ import { useOccurrences } from '@/data/useExtras'
 import { hiresGridLayer } from './layers/hiresLayer'
 import { resolveHiresKeys } from './layers/hiresMath'
 import { landMaskLayer } from './layers/landMaskLayer'
+import { routeLayers } from './layers/routeLayer'
 import { orderLayers } from './layerOrder'
 
 export function useDeckLayers(): Layer[] {
@@ -29,6 +30,9 @@ export function useDeckLayers(): Layer[] {
   const leadIndex = useAppStore((s) => s.leadIndex)
   const overlays = useAppStore((s) => s.overlays)
   const fishMove = useAppStore((s) => s.fishMove)
+  const routeResult = useAppStore((s) => s.routeResult)
+  const routeStart = useAppStore((s) => s.routeStart)
+  const routeEnd = useAppStore((s) => s.routeEnd)
 
   const { data: coast } = useCoast()
   const { data: forecast } = useForecastData()
@@ -88,6 +92,7 @@ export function useDeckLayers(): Layer[] {
         }
       }
       layers.push(stationLayer(stations, sp ? sp.name : null))
+      layers.push(...routeLayers(routeResult, routeStart, routeEnd))
     }
 
     if (timeMode === 'past' && hires) {
@@ -120,5 +125,8 @@ export function useDeckLayers(): Layer[] {
     leadIndex,
     overlays,
     fishMove,
+    routeResult,
+    routeStart,
+    routeEnd,
   ])
 }

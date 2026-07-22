@@ -30,6 +30,25 @@ export interface Port {
   lon: number
 }
 
+/** 水深格點（build_bathymetry.py，GEBCO 重取樣）：第二層吃水限制用。 */
+export interface BathymetryCell {
+  lat: number
+  lon: number
+  depth: number // 正值水深(公尺)
+}
+export interface BathymetryPayload {
+  step: number
+  cells: BathymetryCell[]
+}
+
+/** 漁業資源保育區（fetch_conservation_zones.py 解析）：第二層避開區域。 */
+export interface RestrictedZone {
+  name: string
+  county: string
+  level: string
+  polygon: [number, number][] // [lon, lat] 環
+}
+
 /** 魚種出現點（第一層 occurrenceDensity/confidence 用）。 */
 export function useOccurrences() {
   return useQuery({
@@ -43,5 +62,21 @@ export function usePorts() {
   return useQuery({
     queryKey: ['ports'],
     queryFn: () => fetchJson<Port[]>('ports.json'),
+  })
+}
+
+/** 水深格點（第二層吃水限制用）。 */
+export function useBathymetry() {
+  return useQuery({
+    queryKey: ['bathymetry'],
+    queryFn: () => fetchJson<BathymetryPayload>('bathymetry.json'),
+  })
+}
+
+/** 漁業資源保育區清單（第二層避開區域用）。 */
+export function useRestrictedZones() {
+  return useQuery({
+    queryKey: ['restricted_zones'],
+    queryFn: () => fetchJson<RestrictedZone[]>('restricted_zones.json'),
   })
 }

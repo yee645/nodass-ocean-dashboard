@@ -78,6 +78,7 @@ export interface Station {
   w: number | null
   trend: number | null
   sst_series: { t: string; v: number }[]
+  wave: number | null // 示性波高 m
   front: number
   fish_score: number
   level: string
@@ -94,6 +95,7 @@ export interface FishCell {
   u?: number
   w?: number
   tr?: number
+  wave?: number // 示性波高 m（IDW 內插，供航線規劃避浪）
 }
 
 export interface FishingPayload {

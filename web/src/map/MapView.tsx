@@ -11,18 +11,25 @@ const TW_CENTER: [number, number] = [121.0, 23.7]
 
 interface Props {
   resolvePopup?: (lng: number, lat: number) => string | null
+  /** 回傳 true 代表該次點擊已被處理（例如航線起訖點選取），不再彈 popup。 */
+  onMapClick?: (lng: number, lat: number) => boolean
 }
 
-export default function MapView({ resolvePopup }: Props) {
+export default function MapView({ resolvePopup, onMapClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MaplibreMap | null>(null)
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const resolveRef = useRef(resolvePopup)
+  const clickRef = useRef(onMapClick)
   const layers = useDeckLayers()
 
   useEffect(() => {
     resolveRef.current = resolvePopup
   }, [resolvePopup])
+
+  useEffect(() => {
+    clickRef.current = onMapClick
+  }, [onMapClick])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -69,6 +76,9 @@ export default function MapView({ resolvePopup }: Props) {
     map.addControl(overlay)
 
     map.on('click', (event) => {
+      const clickFn = clickRef.current
+      if (clickFn?.(event.lngLat.lng, event.lngLat.lat)) return
+
       const fn = resolveRef.current
       if (!fn) return
       const html = fn(event.lngLat.lng, event.lngLat.lat)
