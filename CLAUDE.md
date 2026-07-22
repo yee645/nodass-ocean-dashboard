@@ -8,7 +8,12 @@
 作為漁民出航前的**決策參考平台**（非漁獲保證、非官方海象警報）。
 
 ## 快速開始
-- 看成果：直接開 `dashboard/platform.html`（自含式，免後端）。線上：https://yee645.github.io/nodass-ocean-dashboard/
+- **線上正式版**：https://yee645.github.io/nodass-ocean-dashboard/ ——部署的是 `web/`（React19+Vite+deck.gl+zustand），
+  由 `.github/workflows/deploy.yml` 在 push 到 main 且變動到 `web/**` 時自動 build+deploy（GitHub Pages 設定為
+  `build_type: workflow`）。**只改 Python 產生的資料/`dashboard/*.html` 不會觸發部署**，必須連 `web/public/data`
+  一起變動才會（見下方「執行順序」最後一步 `sync_web_data.py`）。
+- **本機/離線快速預覽**（免安裝 Node、免後端）：直接開 `dashboard/platform.html`。這是 Python 管線產生的自含式
+  iframe 版舊介面，繼續保留維護，跟線上的 React 版是兩套並存的前端、資料底層共用（都源自 `sdm/*.json`）。
 - 依賴：`pip install -r requirements.txt`（numpy / scipy / Pillow / PyMuPDF）。網路請求用標準庫 urllib。
 - 一鍵重建（開放資料）：`bash setup.sh`（或 `pwsh setup.ps1`）。
 - 平台 = `dashboard/platform.html`，以 iframe 整合三個棲地子頁 + 極端浪況頁。
@@ -28,7 +33,10 @@
 - `.nodass_token` 為機密（gitignore，勿外流）；目前所有管線都用開放源，不需它。
 
 ## 架構與檔案
-- **入口**：`dashboard/platform.html`（時段切換：過去衛星 / 現在浮標 / 未來 CWA，iframe 載入子頁）。
+- **兩套並存前端**：`web/`（React，線上正式版，見「快速開始」）與 `dashboard/*.html`（Python 產生，本機/離線預覽）。
+  `web/src` 內註解自己標明「對應舊 platform.html」——React 版已是完整替代品，不是包一層 iframe 而已；
+  但 `dashboard/*.html` 仍持續維護、保留給免安裝 Node 環境快速看結果用，兩者資料都源自同一批 `sdm/*.json`。
+- **入口（本機版）**：`dashboard/platform.html`（時段切換：過去衛星 / 現在浮標 / 未來 CWA，iframe 載入子頁）。
 - **頁面與產生器**：
   - `build_dashboard.py` → `dashboard/index.html`：極端浪況預警（浮標波高風險 + 時間軸）。
   - `build_fishing.py` → `dashboard/fishing.html`：即時浮標漁場棲地、魚群熱區/漂移、時間軸。
@@ -47,6 +55,9 @@
 3. `python build_forecast.py`（自動抓 CWA OCM + GOCI，需網路）
 4. `python build_platform.py`
 5.（選用）`build_occurrences.py` 需 `data/` 原始生物資料；其輸出 `sdm/occurrences.csv` 已上傳，故 `build_sdm.py`/`build_hires.py` 不需原始資料即可跑。
+6. **`python sync_web_data.py`**——把上面產生的 `sdm/*.json` 複製進 `web/public/data/`，供線上 React 前端 fetch。
+   **這步不能漏**：commit+push 若沒動到 `web/` 底下任何檔案，GitHub Actions 不會觸發，線上正式版就不會更新
+   （曾經漏掉這步，push 後以為部署了，結果線上資料是舊的）。
 
 ## 誠實準確度（寫報告與對使用者溝通時務必照實）
 - 高解析 SDM：**空間分塊交叉驗證 AUC 0.75–0.90**（17 種，與隨機 CV 接近，非空間自相關假象）。
