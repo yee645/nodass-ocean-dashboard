@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DATA_DIR = Path(r"D:\nodass")
+DATA_DIR = Path(__file__).resolve().parent      # 專案根(相對於本檔)，取代舊硬編絕對路徑
 STEPS = ["fetch_buoys.py", "accumulate_history.py", "build_dashboard.py", "build_fishing.py"]
 
 

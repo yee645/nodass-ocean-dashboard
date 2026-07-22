@@ -7,7 +7,7 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-DATA_DIR = Path(r"D:\nodass")
+DATA_DIR = Path(__file__).resolve().parent      # 專案根(相對於本檔)，取代舊硬編絕對路徑
 NORMAL = DATA_DIR / "datasets.json"
 MARINE = DATA_DIR / "datasets_marine.json"
 REPORT = DATA_DIR / "scan_report.txt"
