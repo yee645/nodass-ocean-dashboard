@@ -21,6 +21,7 @@ ASSETS = [
     ("sdm/occurrences_web.json", "occurrences_web.json"),  # 第一層 KDE 用出現點
     ("sdm/bathymetry.json", "bathymetry.json"),        # 第二層航線水深限制
     ("sdm/restricted_zones.json", "restricted_zones.json"),  # 第二層航線避開漁業資源保育區
+    ("sdm/tide.json", "tide.json"),                    # 第二層航線水深潮位修正
 ]
 
 

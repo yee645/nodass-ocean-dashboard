@@ -8,6 +8,7 @@ export function useRoutePicking(): (lng: number, lat: number) => boolean {
   const routePicking = useAppStore((s) => s.routePicking)
   const setRouteStart = useAppStore((s) => s.setRouteStart)
   const setRouteEnd = useAppStore((s) => s.setRouteEnd)
+  const addRouteWaypoint = useAppStore((s) => s.addRouteWaypoint)
   const setRoutePicking = useAppStore((s) => s.setRoutePicking)
   const { data: coast } = useCoast()
 
@@ -18,11 +19,12 @@ export function useRoutePicking(): (lng: number, lat: number) => boolean {
       if (snapped) {
         const point = { lon: snapped[0], lat: snapped[1] }
         if (routePicking === 'start') setRouteStart(point)
-        else setRouteEnd(point)
+        else if (routePicking === 'end') setRouteEnd(point)
+        else addRouteWaypoint(point)
       }
       setRoutePicking(null)
       return true
     },
-    [routePicking, coast, setRouteStart, setRouteEnd, setRoutePicking],
+    [routePicking, coast, setRouteStart, setRouteEnd, addRouteWaypoint, setRoutePicking],
   )
 }

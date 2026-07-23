@@ -49,6 +49,14 @@ export interface RestrictedZone {
   polygon: [number, number][] // [lon, lat] 環
 }
 
+/** 潮汐測站（fetch_tide.py）：第二層水深門檻的單點潮位修正用。 */
+export interface TideStation {
+  name: string
+  lat: number
+  lon: number
+  tideM: number // 目前潮位(公尺，相對平均海平面，可正可負)
+}
+
 /** 魚種出現點（第一層 occurrenceDensity/confidence 用）。 */
 export function useOccurrences() {
   return useQuery({
@@ -79,4 +87,28 @@ export function useRestrictedZones() {
     queryKey: ['restricted_zones'],
     queryFn: () => fetchJson<RestrictedZone[]>('restricted_zones.json'),
   })
+}
+
+/** 潮汐測站清單（第二層水深潮位修正用）；資料尚未產生時 sync 會略過，query 回傳空陣列。 */
+export function useTide() {
+  return useQuery({
+    queryKey: ['tide'],
+    queryFn: () => fetchJson<TideStation[]>('tide.json'),
+    retry: false,
+  })
+}
+
+/** 找離指定座標最近的潮汐測站，回傳目前潮位(公尺)；無資料時回傳 0(不修正)。 */
+export function nearestTideM(stations: TideStation[] | undefined, lat: number, lon: number): number {
+  if (!stations || stations.length === 0) return 0
+  let best = stations[0]
+  let bd = Infinity
+  for (const st of stations) {
+    const d = (st.lat - lat) ** 2 + (st.lon - lon) ** 2
+    if (d < bd) {
+      bd = d
+      best = st
+    }
+  }
+  return best.tideM
 }

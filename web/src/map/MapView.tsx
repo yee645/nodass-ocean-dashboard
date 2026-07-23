@@ -3,9 +3,11 @@ import { Map as MaplibreMap, NavigationControl, Popup } from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './mapPopup.css'
+import { useAppStore } from '@/store/useAppStore'
 import { basemapStyle } from './basemapStyle'
 import { useDeckLayers } from './useDeckLayers'
 import { orderLayers } from './layerOrder'
+import { isRouteSegment, routeSegmentTooltip } from './layers/routeLayer'
 
 const TW_CENTER: [number, number] = [121.0, 23.7]
 
@@ -22,6 +24,8 @@ export default function MapView({ resolvePopup, onMapClick }: Props) {
   const resolveRef = useRef(resolvePopup)
   const clickRef = useRef(onMapClick)
   const layers = useDeckLayers()
+  const routeSpeedKt = useAppStore((s) => s.routeSpeedKt)
+  const speedRef = useRef(routeSpeedKt)
 
   useEffect(() => {
     resolveRef.current = resolvePopup
@@ -30,6 +34,10 @@ export default function MapView({ resolvePopup, onMapClick }: Props) {
   useEffect(() => {
     clickRef.current = onMapClick
   }, [onMapClick])
+
+  useEffect(() => {
+    speedRef.current = routeSpeedKt
+  }, [routeSpeedKt])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -49,6 +57,19 @@ export default function MapView({ resolvePopup, onMapClick }: Props) {
       interleaved: false,
       layers: [],
       getTooltip: (info) => {
+        const style = {
+          background: '#15233b',
+          color: '#e8eef7',
+          border: '1px solid #2f456b',
+          borderRadius: '6px',
+          fontSize: '12px',
+          padding: '6px 8px',
+        }
+
+        if (isRouteSegment(info.object)) {
+          return { html: routeSegmentTooltip(info.object, speedRef.current), style }
+        }
+
         const station = info.object as
           | {
               name: string
@@ -62,14 +83,7 @@ export default function MapView({ resolvePopup, onMapClick }: Props) {
         if (!station || typeof station.fish_score === 'undefined') return null
         return {
           html: `<b>${station.name}</b><br/>位置 ${station.lat.toFixed(3)}, ${station.lon.toFixed(3)}<br/>SST ${station.sst}°C / 流速 ${station.current ?? '-'}<br/>潛在漁場指標 ${station.fish_score}`,
-          style: {
-            background: '#15233b',
-            color: '#e8eef7',
-            border: '1px solid #2f456b',
-            borderRadius: '6px',
-            fontSize: '12px',
-            padding: '6px 8px',
-          },
+          style,
         }
       },
     })

@@ -48,7 +48,7 @@
   - `build_platform.py` → `dashboard/platform.html`：整合入口。
 - **共用**：`dashboard_common.py`（SHARED_CSS、nav_html、海岸線遮罩 on_land、IDW、海岸線）。
 - **資料管線**：`fetch_buoys.py`、`fetch_satellite.py`+`sat_digitize.py`（衛星數位化）、`fetch_ocm_forecast.py`（CWA OCM）、`fetch_tfrin_env.py`（TFRIN PDF）、`build_occurrences.py`（整併物種出現點）、`build_sdm.py`（presence-only 高斯包絡 SDM）。
-- **航線規劃（第二層）資料**：`build_ports.py`（漁港起點 `sdm/ports.json`）、`build_bathymetry.py`（GEBCO 水深重取樣 `sdm/bathymetry.json`，**需人工下載一次原始檔**，見下方 gitignored 資料）、`fetch_conservation_zones.py`（漁業資源保育區文字座標解析 `sdm/restricted_zones.json`，含人工抽查機制）。
+- **航線規劃（第二層）資料**：`build_ports.py`（漁港起點 `sdm/ports.json`）、`build_bathymetry.py`（GEBCO 水深重取樣 `sdm/bathymetry.json`，**需人工下載一次原始檔**，見下方 gitignored 資料）、`fetch_conservation_zones.py`（漁業資源保育區文字座標解析 `sdm/restricted_zones.json`，含人工抽查機制）、`fetch_tide.py`（潮汐測站目前潮位 `sdm/tide.json`，scaffold，需 `.cwa_token`，供水深門檻做單點潮位修正，非全網格逐時模擬）。
 - **魚種習性**：`species_traits.py`（10 種經濟魚種適溫窗、季節、習性）。
 - `live_update.py`：fetch_buoys → accumulate_history → build_dashboard → build_fishing。
 - `make_region_coast.py`：由 Natural Earth 產生 `region_coast.json`（含中國大陸沿海，供陸地遮罩/底圖）。
@@ -59,7 +59,7 @@
 3. `python build_forecast.py`（自動抓 CWA OCM + GOCI，需網路）
 4. `python build_platform.py`
 5.（選用）`build_occurrences.py` 需 `data/` 原始生物資料；其輸出 `sdm/occurrences.csv` 已上傳，故 `build_sdm.py`/`build_hires.py` 不需原始資料即可跑。
-6.（開發 `web/` 時）`python sync_web_data.py`：把 `sdm/forecast_grid.json`、`sdm/hires_grid.json`、`sdm/fishing_grid.json`、`region_coast.json`、`sdm/ports.json`、`sdm/occurrences_web.json`、`sdm/bathymetry.json`、`sdm/restricted_zones.json` 複製到 `web/public/data/`，React 端才吃得到新資料。尚未併入 `setup.sh`，Python 產物更新後需手動執行。
+6.（開發 `web/` 時）`python sync_web_data.py`：把 `sdm/forecast_grid.json`、`sdm/hires_grid.json`、`sdm/fishing_grid.json`、`region_coast.json`、`sdm/ports.json`、`sdm/occurrences_web.json`、`sdm/bathymetry.json`、`sdm/restricted_zones.json`、`sdm/tide.json` 複製到 `web/public/data/`，React 端才吃得到新資料。尚未併入 `setup.sh`，Python 產物更新後需手動執行。
 
 ## React 前端（`web/`）— 重構進行中，尚未部署
 > 目標：功能/API 與現有 `dashboard/*.html` **1:1 一致**，只做美化與加速；科學計算仍在 Python，TS 端不重算。
@@ -113,6 +113,7 @@
   漁業資源保育區記錄會印到 stdout，人工查證後可手動整理成同格式（`[{name, county, level, polygon}]`）
   存這個檔，腳本會自動合併進 `sdm/restricted_zones.json`。
 - `.nodass_token`：機密，勿外流；目前所有管線都用開放源，不需它。
+- `.cwa_token`：CWA 開放資料平台免費金鑰（https://opendata.cwa.gov.tw 申請），`fetch_cwa_wave.py`（示性波高預報）、`fetch_tide.py`（潮汐修正）共用；未設定時兩者安全回傳 None、不寫檔，不影響其餘管線。
 
 ## 專案慣例（沿用 owner 的全域規則；協作 agent 請遵守）
 - 全部輸出用**繁體中文**（台灣慣用語），**不用 emoji**。

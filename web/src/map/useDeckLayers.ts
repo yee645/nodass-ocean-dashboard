@@ -15,10 +15,11 @@ import {
   stationLayer,
 } from './layers/nowLayers'
 import { hotspotCoreLayers } from './layers/hotspotLayers'
-import { useOccurrences } from '@/data/useExtras'
+import { useOccurrences, useBathymetry } from '@/data/useExtras'
 import { hiresGridLayer } from './layers/hiresLayer'
 import { resolveHiresKeys } from './layers/hiresMath'
 import { landMaskLayer } from './layers/landMaskLayer'
+import { bathymetryLayer } from './layers/bathymetryLayer'
 import { routeLayers } from './layers/routeLayer'
 import { orderLayers } from './layerOrder'
 
@@ -33,12 +34,15 @@ export function useDeckLayers(): Layer[] {
   const routeResult = useAppStore((s) => s.routeResult)
   const routeStart = useAppStore((s) => s.routeStart)
   const routeEnd = useAppStore((s) => s.routeEnd)
+  const routeWaypoints = useAppStore((s) => s.routeWaypoints)
+  const routeShowDepth = useAppStore((s) => s.routeShowDepth)
 
   const { data: coast } = useCoast()
   const { data: forecast } = useForecastData()
   const { data: fishing } = useFishingData()
   const { data: hires } = useHiresData()
   const { data: occ } = useOccurrences()
+  const { data: bathymetry } = useBathymetry()
   const { grid: nowGrid } = useNowGrid()
 
   return useMemo<Layer[]>(() => {
@@ -92,7 +96,8 @@ export function useDeckLayers(): Layer[] {
         }
       }
       layers.push(stationLayer(stations, sp ? sp.name : null))
-      layers.push(...routeLayers(routeResult, routeStart, routeEnd))
+      if (routeShowDepth && bathymetry) layers.push(bathymetryLayer(bathymetry))
+      layers.push(...routeLayers(routeResult, routeStart, routeEnd, routeWaypoints))
     }
 
     if (timeMode === 'past' && hires) {
@@ -128,5 +133,8 @@ export function useDeckLayers(): Layer[] {
     routeResult,
     routeStart,
     routeEnd,
+    routeWaypoints,
+    routeShowDepth,
+    bathymetry,
   ])
 }

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { useFishingData, useCoast } from '@/data/useData'
-import { usePorts, useBathymetry, useRestrictedZones, type Port } from '@/data/useExtras'
+import { usePorts, useBathymetry, useRestrictedZones, useTide, nearestTideM, type Port } from '@/data/useExtras'
 import { buildRouteCells } from '@/map/route/routeCells'
 import { buildCostField, type Objective } from '@/map/route/costGrid'
-import { astar } from '@/map/route/astar'
+import { astar, mergeRouteResults, type RoutePoint } from '@/map/route/astar'
 
 const OBJECTIVES: { key: Objective; label: string }[] = [
   { key: 'fish', label: '最高魚場' },
@@ -15,7 +15,7 @@ const OBJECTIVES: { key: Objective; label: string }[] = [
 
 const KM_PER_NM = 1.852
 
-/** 第二層：航線規劃（現在時段）。起訖點 + 目標 + 吃水/續航/保育區限制 → A* 畫航線。 */
+/** 第二層：航線規劃（現在時段）。起訖點(可加中繼點) + 目標 + 吃水/續航/保育區限制 → A* 畫航線。 */
 export default function RoutePanel() {
   const species = useAppStore((s) => s.species)
   const routePicking = useAppStore((s) => s.routePicking)
@@ -23,6 +23,8 @@ export default function RoutePanel() {
   const routeStart = useAppStore((s) => s.routeStart)
   const setRouteStart = useAppStore((s) => s.setRouteStart)
   const routeEnd = useAppStore((s) => s.routeEnd)
+  const routeWaypoints = useAppStore((s) => s.routeWaypoints)
+  const removeRouteWaypoint = useAppStore((s) => s.removeRouteWaypoint)
   const routeObjective = useAppStore((s) => s.routeObjective)
   const setRouteObjective = useAppStore((s) => s.setRouteObjective)
   const routeMaxRangeNm = useAppStore((s) => s.routeMaxRangeNm)
@@ -31,17 +33,22 @@ export default function RoutePanel() {
   const setRouteDraftM = useAppStore((s) => s.setRouteDraftM)
   const routeAvoidZones = useAppStore((s) => s.routeAvoidZones)
   const setRouteAvoidZones = useAppStore((s) => s.setRouteAvoidZones)
+  const routeSpeedKt = useAppStore((s) => s.routeSpeedKt)
+  const setRouteSpeedKt = useAppStore((s) => s.setRouteSpeedKt)
+  const routeShowDepth = useAppStore((s) => s.routeShowDepth)
+  const setRouteShowDepth = useAppStore((s) => s.setRouteShowDepth)
   const routeResult = useAppStore((s) => s.routeResult)
   const setRouteResult = useAppStore((s) => s.setRouteResult)
 
-  const [speedKt, setSpeedKt] = useState(8)
   const [geoError, setGeoError] = useState<string | null>(null)
+  const [planError, setPlanError] = useState<string | null>(null)
 
   const { data: fishing } = useFishingData()
   const { data: coast } = useCoast()
   const { data: ports } = usePorts()
   const { data: bathymetry } = useBathymetry()
   const { data: zones } = useRestrictedZones()
+  const { data: tide } = useTide()
 
   const portsByCounty = useMemo(() => {
     const map = new Map<string, Port[]>()
@@ -73,6 +80,8 @@ export default function RoutePanel() {
 
   const plan = (): void => {
     if (!routeStart || !routeEnd) return
+    setPlanError(null)
+    const tideOffsetM = nearestTideM(tide, routeStart.lat, routeStart.lon)
     const cells = buildRouteCells({
       grid: fishing.grid,
       month: fishing.meta.month,
@@ -82,16 +91,28 @@ export default function RoutePanel() {
       zones,
       draftM: routeDraftM,
       avoidZones: routeAvoidZones,
+      tideOffsetM,
     })
     const cost = buildCostField(cells, routeObjective)
-    const result = astar({
-      cells,
-      step: fishing.meta.step,
-      cost,
-      start: routeStart,
-      goal: routeEnd,
-    })
-    setRouteResult(result)
+    const stops: RoutePoint[] = [routeStart, ...routeWaypoints, routeEnd]
+
+    const legs = []
+    for (let i = 1; i < stops.length; i++) {
+      const leg = astar({
+        cells,
+        step: fishing.meta.step,
+        cost,
+        start: stops[i - 1],
+        goal: stops[i],
+      })
+      if (!leg) {
+        setPlanError('找不到可行航線，請確認起訖點/中繼點都在浮標覆蓋範圍內的海域。')
+        setRouteResult(null)
+        return
+      }
+      legs.push(leg)
+    }
+    setRouteResult(mergeRouteResults(legs))
   }
 
   const distanceNm = routeResult ? routeResult.lengthKm / KM_PER_NM : null
@@ -134,7 +155,8 @@ export default function RoutePanel() {
             </button>
           </div>
           {routeStart && (
-            <div className="type-caption mt-0.5 text-muted">
+            <div className="type-caption mt-0.5 flex items-center gap-1.5 text-muted">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#2e936c]" />
               {routeStart.lat.toFixed(3)}, {routeStart.lon.toFixed(3)}
             </div>
           )}
@@ -157,9 +179,48 @@ export default function RoutePanel() {
             {routePicking === 'end' ? '請在地圖上點選終點...' : '在地圖上點選終點'}
           </button>
           {routeEnd && (
-            <div className="type-caption mt-0.5 text-muted">
+            <div className="type-caption mt-0.5 flex items-center gap-1.5 text-muted">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#d7263d]" />
               {routeEnd.lat.toFixed(3)}, {routeEnd.lon.toFixed(3)}
             </div>
+          )}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="type-control block text-muted">中繼點（可選）</label>
+            <button
+              onClick={() => setRoutePicking(routePicking === 'waypoint' ? null : 'waypoint')}
+              className={
+                'type-caption cursor-pointer rounded-md border px-2 py-0.5 ' +
+                (routePicking === 'waypoint'
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-border-strong bg-surface text-muted hover:text-ink')
+              }
+            >
+              {routePicking === 'waypoint' ? '請在地圖上點選...' : '+ 新增中繼點'}
+            </button>
+          </div>
+          {routeWaypoints.length > 0 && (
+            <ul className="mt-1 flex flex-col gap-1">
+              {routeWaypoints.map((wp, i) => (
+                <li
+                  key={i}
+                  className="type-caption flex items-center justify-between gap-1.5 rounded-md border border-border-strong bg-surface px-2 py-1 text-muted"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#7fd4ff]" />
+                    {wp.lat.toFixed(3)}, {wp.lon.toFixed(3)}
+                  </span>
+                  <button
+                    onClick={() => removeRouteWaypoint(i)}
+                    className="cursor-pointer text-[#ff6b6b] hover:text-white"
+                  >
+                    移除
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 
@@ -209,6 +270,12 @@ export default function RoutePanel() {
             />
           </label>
         </div>
+        {routeDraftM > 0 && routeStart && tide && tide.length > 0 && (
+          <div className="type-caption text-muted">
+            吃水門檻已套用最近測站潮位修正：{nearestTideM(tide, routeStart.lat, routeStart.lon) >= 0 ? '+' : ''}
+            {nearestTideM(tide, routeStart.lat, routeStart.lon).toFixed(2)}m
+          </div>
+        )}
 
         <label className="type-control flex cursor-pointer items-center gap-2 text-ink">
           <input
@@ -220,13 +287,23 @@ export default function RoutePanel() {
           避開漁業資源保育區
         </label>
 
+        <label className="type-control flex cursor-pointer items-center gap-2 text-ink">
+          <input
+            type="checkbox"
+            checked={routeShowDepth}
+            onChange={(e) => setRouteShowDepth(e.target.checked)}
+            className="h-4 w-4 rounded accent-accent"
+          />
+          顯示水深參考圖層
+        </label>
+
         <label className="type-control flex items-center gap-2 text-muted">
           船速(節)
           <input
             type="number"
             min={1}
-            value={speedKt}
-            onChange={(e) => setSpeedKt(Math.max(1, Number(e.target.value)))}
+            value={routeSpeedKt}
+            onChange={(e) => setRouteSpeedKt(Math.max(1, Number(e.target.value)))}
             className="w-16 rounded-lg border border-border-strong bg-surface px-2 py-1 text-ink"
           />
         </label>
@@ -239,10 +316,14 @@ export default function RoutePanel() {
           規劃航線
         </button>
 
+        {planError && (
+          <div className="type-caption text-[#ff6b6b]">{planError}</div>
+        )}
+
         {routeResult && distanceNm != null && (
           <div className="type-control rounded-lg border border-border-strong bg-panel-2 p-2 text-ink">
             距離 <b>{distanceNm.toFixed(1)} 浬</b> 預估航行時間{' '}
-            <b>{(distanceNm / speedKt).toFixed(1)} 小時</b>
+            <b>{(distanceNm / routeSpeedKt).toFixed(1)} 小時</b>
             {overRange && (
               <div className="type-caption mt-1 text-[#ff6b6b]">
                 超出設定的最大續航範圍，僅供參考，請自行評估油料/補給。
@@ -251,8 +332,20 @@ export default function RoutePanel() {
           </div>
         )}
 
+        <div className="type-caption flex flex-wrap items-center gap-x-3 gap-y-1 text-muted">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#2e936c]" />起點
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#7fd4ff]" />中繼點
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#d7263d]" />終點
+          </span>
+        </div>
+
         <div className="type-caption text-muted">
-          航線僅在浮標覆蓋範圍(近岸)內規劃，未涵蓋軍事管制水域；漁業資源保育區座標為自動解析結果，可能有遺漏，正式航行請以官方公告為準。
+          航線僅在浮標覆蓋範圍(近岸)內規劃，未涵蓋軍事管制水域；漁業資源保育區座標為自動解析結果，可能有遺漏，正式航行請以官方公告為準。滑鼠移到航線上可看該段距起點的距離與預估時間。
         </div>
       </div>
     </div>

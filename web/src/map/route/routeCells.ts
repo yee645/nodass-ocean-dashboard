@@ -16,10 +16,11 @@ export interface BuildRouteCellsInput {
   zones?: RestrictedZone[]
   draftM: number // 吃水限制(公尺)，0 = 不限
   avoidZones: boolean
+  tideOffsetM?: number // 最近潮汐測站目前潮位(公尺)，加到水深門檻做單點修正；預設 0(不修正)
 }
 
 export function buildRouteCells(input: BuildRouteCellsInput): RouteCell[] {
-  const { grid, month, species, coast, bathymetry, zones, draftM, avoidZones } = input
+  const { grid, month, species, coast, bathymetry, zones, draftM, avoidZones, tideOffsetM = 0 } = input
 
   const depthByKey = new Map<string, number>()
   if (bathymetry) {
@@ -35,7 +36,7 @@ export function buildRouteCells(input: BuildRouteCellsInput): RouteCell[] {
     if (!blocked && bathymetry && draftM > 0) {
       const key = `${Math.round(cell.lat / bathymetry.step)}|${Math.round(cell.lon / bathymetry.step)}`
       const depth = depthByKey.get(key)
-      if (depth != null && depth < draftM) blocked = true
+      if (depth != null && depth + tideOffsetM < draftM) blocked = true
     }
 
     if (!blocked && avoidZones && zones) {
