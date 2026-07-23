@@ -45,6 +45,7 @@ __pycache__/
 _sat_cache/
 _tfrin_pdf/
 _bathy_cache/
+_env_cache/
 /data/
 臺灣底拖與深海採集資料/
 截圖/
@@ -57,9 +58,6 @@ sdm/sdm_grid.json
 
 # GBIF 原始抓取資料（可由 fetch_gbif.py 重建）
 gbif_taiwan_fish.csv
-
-# 實驗性模型輸出（可由 build_sdm_now.py 重建，尚未定案是否採用）
-sdm/sdm_now.json
 
 # 內政部漁港 SHP 原始下載（第三方資料，build_ports.py 用完即可不留）
 35_全臺縣市漁港分布圖/
