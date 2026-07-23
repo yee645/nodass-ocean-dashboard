@@ -106,6 +106,42 @@ export interface FishingPayload {
   times: string[]
 }
 
+/** === 現在頁 ML SDM 係數（build_sdm_now.py，issue #10：氣候場多協變數取代弱版） === */
+
+export interface SdmNowSpeciesOk {
+  ok: true
+  coef: number[] // [b0, b1..] 對齊 SDM_NOW_FEAT 順序(不含截距欄外的 7 個 x)
+  mean: number[]
+  std: number[]
+  auc: number | null
+  auc_app: number
+  boyce: number | null
+  n: number
+}
+export interface SdmNowSpeciesNo {
+  ok: false
+  n: number
+  reason: string
+}
+export type SdmNowSpecies = SdmNowSpeciesOk | SdmNowSpeciesNo
+
+/** 現在月份的氣候場(鹽度/葉綠素/水深)，對齊 fishing_grid 的格點(以最近格查詢，見 sdmNowModel.ts)。 */
+export interface SdmNowEnvGrid {
+  month: number
+  lat: number[]
+  lon: number[]
+  sal: number[]
+  log_chl: number[]
+  log_depth: number[]
+}
+
+export interface SdmNowPayload {
+  feat: string[]
+  infer_note: string
+  species: Record<string, SdmNowSpecies>
+  env_now: SdmNowEnvGrid
+}
+
 /** === 過去時段（hires 衛星高解析）schema（build_hires.py） === */
 
 export interface HiresMeta {

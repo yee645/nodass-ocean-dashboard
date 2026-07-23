@@ -13,9 +13,10 @@ import {
   TextLayer,
 } from '@deck.gl/layers'
 import type { Layer } from '@deck.gl/core'
-import type { FishCell, Species } from '@/data/contracts'
+import type { FishCell, Species, SdmNowPayload } from '@/data/contracts'
 import type { OccRaw } from '@/data/useExtras'
 import { suit } from './nowMath'
+import { mlSuitGrid } from './sdmNowModel'
 import {
   occurrenceDensity,
   occurrenceCount,
@@ -57,6 +58,7 @@ export function hotspotCoreLayers(
   month: number,
   step: number,
   occRaw: OccRaw[],
+  sdmNow?: SdmNowPayload,
 ): Layer[] {
   const occ: OccPoint[] = occRaw.map((o) => ({
     species: o.s,
@@ -65,10 +67,11 @@ export function hotspotCoreLayers(
     month: o.m,
   }))
 
-  // 1. 環境適合度：吃同學的 suit（front 在網格暫無 → 0，與現況一致；其餘 SST/海流/季節/趨勢照算）
-  const envSuit = grid.map((c) =>
-    suit(c.v, sp, month, { u: c.u ?? null, w: c.w ?? null, trend: c.tr ?? null }),
-  )
+  // 1. 環境適合度：該魚種若有訓練好的 ML SDM(issue #10，氣候場多協變數)則優先採用，
+  // 否則 fallback 回同學 suit() 的規則式版本(零回歸)。
+  const ml = mlSuitGrid(grid, step, sdmNow, sp.name, month)
+  const envSuit =
+    ml ?? grid.map((c) => suit(c.v, sp, month, { u: c.u ?? null, w: c.w ?? null, trend: c.tr ?? null }))
   // 2. 歷史出現密度 → 相乘 gate；3. 信心 → 取核心門檻
   const density = occurrenceDensity(grid, occ, sp.name, month)
   const score = fishScore(envSuit, density)

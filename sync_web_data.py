@@ -22,6 +22,7 @@ ASSETS = [
     ("sdm/bathymetry.json", "bathymetry.json"),        # 第二層航線水深限制
     ("sdm/restricted_zones.json", "restricted_zones.json"),  # 第二層航線避開漁業資源保育區
     ("sdm/tide.json", "tide.json"),                    # 第二層航線水深潮位修正
+    ("sdm/sdm_now.json", "sdm_now.json"),               # 第一層 ML SDM 係數(取代弱版即時快照，issue #10)
 ]
 
 

@@ -333,6 +333,29 @@ def eastward_check(beta, mean, std, species: str) -> str | None:
 GLOBAL_ENV_CACHE: list = [None, None]
 
 
+def build_env_now_grid(months: dict[int, MonthEnv], depth_fn, month: int) -> dict:
+    """current 月份氣候場(sal/chl/depth)對齊 fishing_grid.json 的現有格點，供前端推論用。
+    sst/front 前端改用即時值現算(見 infer_note)，故這裡不含。"""
+    grid = json.loads((SDM / "fishing_grid.json").read_text(encoding="utf-8"))["grid"]
+    env = months[month]
+    lats, lons, sal, log_chl, log_depth = [], [], [], [], []
+    for c in grid:
+        if c.get("v") is None:
+            continue
+        s = env.sal(c["lat"], c["lon"])
+        ch = env.chl(c["lat"], c["lon"])
+        d = depth_fn(c["lat"], c["lon"])
+        if s is None or ch is None or d is None:
+            continue
+        lats.append(c["lat"])
+        lons.append(c["lon"])
+        sal.append(round(s, 3))
+        log_chl.append(round(math.log(max(ch, CHL_FLOOR)), 4))
+        log_depth.append(round(math.log1p(max(d, 0.0)), 4))
+    return {"month": month, "lat": lats, "lon": lons,
+            "sal": sal, "log_chl": log_chl, "log_depth": log_depth}
+
+
 def main() -> None:
     months, depth_fn = load_env()
     GLOBAL_ENV_CACHE[0], GLOBAL_ENV_CACHE[1] = months, depth_fn
@@ -381,10 +404,16 @@ def main() -> None:
         if diag:
             print(f"           {diag}")
 
+    import datetime as dt
+    cur_month = dt.date.today().month
+    env_now = build_env_now_grid(months, depth_fn, cur_month)
+    print(f"env_now(月={cur_month})：{len(env_now['lat'])} 格(對齊 fishing_grid)")
+
     payload = {
         "feat": FEAT,
-        "infer_note": "推論時建議 sst_clim 換成今日即時 SST(更準)，sal_clim/log_chl/log_depth 用氣候場(無即時來源)",
+        "infer_note": "推論時 sst_clim 由前端即時 SST 現算取代(更準)，sal_clim/log_chl/log_depth 用 env_now 氣候場",
         "species": out,
+        "env_now": env_now,
     }
     (SDM / "sdm_now.json").write_text(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

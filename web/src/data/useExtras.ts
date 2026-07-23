@@ -4,6 +4,7 @@
  * 資料來源：sdm/occurrences_web.json、sdm/ports.json（由 sync_web_data.py 同步進 public/data）。
  */
 import { useQuery } from '@tanstack/react-query'
+import type { SdmNowPayload } from './contracts'
 
 const asset = (name: string): string => `${import.meta.env.BASE_URL}data/${name}`
 
@@ -94,6 +95,16 @@ export function useTide() {
   return useQuery({
     queryKey: ['tide'],
     queryFn: () => fetchJson<TideStation[]>('tide.json'),
+    retry: false,
+  })
+}
+
+/** 第一層 ML SDM 係數(issue #10)：氣候場多協變數模型，取代弱版即時快照。查無資料時 query 回傳 undefined，
+ * 呼叫端(hotspotLayers.ts)須 fallback 回規則式 nowMath.suit()，零回歸。 */
+export function useSdmNow() {
+  return useQuery({
+    queryKey: ['sdm_now'],
+    queryFn: () => fetchJson<SdmNowPayload>('sdm_now.json'),
     retry: false,
   })
 }

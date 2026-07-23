@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store/useAppStore'
 import { useFishingData } from '@/data/useData'
+import { useSdmNow } from '@/data/useExtras'
 import { heat } from '@/map/layers/nowMath'
 import SpeciesCard from './now/SpeciesCard'
 import StationTable from './now/StationTable'
@@ -17,6 +18,7 @@ export default function NowPanel() {
   const fishMove = useAppStore((s) => s.fishMove)
   const setFishMove = useAppStore((s) => s.setFishMove)
   const { data: fishing } = useFishingData()
+  const { data: sdmNow } = useSdmNow()
 
   if (!fishing) return <div className="type-caption text-muted">資料載入中...</div>
   const { stations, species: speciesOptions } = fishing
@@ -127,6 +129,17 @@ export default function NowPanel() {
           熱區判斷標準：環境適合度需達 35 分以上，且該魚種在此海域附近有歷史出現紀錄支持，
           兩者同時成立才會標示核心。適合度高但無熱區，通常代表此處尚無該魚種歷史紀錄可佐證
           （非「這裡沒有魚」）；虛線框代表浮標可內插的資料涵蓋範圍，框外無資料參考。
+          {(() => {
+            const m = sdmNow?.species[cur]
+            if (m?.ok) {
+              return (
+                <span className="mt-1 block text-[#7fd4ff]">
+                  適合度使用 ML 模型（氣候場多協變數，空間 CV AUC {m.auc ?? '—'}），非規則式估算。
+                </span>
+              )
+            }
+            return null
+          })()}
         </div>
       )}
 

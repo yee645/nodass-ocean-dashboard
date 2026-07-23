@@ -10,8 +10,10 @@ import { useNowGrid } from './useNowGrid'
 import { beaufort } from './palettes'
 import { LOWCONF } from './layers/fieldConfig'
 import { suit, dirName, bearingDeg } from './layers/nowMath'
+import { mlSuitGrid } from './layers/sdmNowModel'
 import { resolveHiresKeys } from './layers/hiresMath'
 import { cellTouchesLand, isLand } from './layers/coastMask'
+import { useSdmNow } from '@/data/useExtras'
 
 const empty = (value: number | null | undefined, suffix = ''): string =>
   value == null ? '-' : `${value}${suffix}`
@@ -29,6 +31,7 @@ export function usePopup(): (lng: number, lat: number) => string | null {
   const { data: hires } = useHiresData()
   const { data: coast } = useCoast()
   const { grid: nowGrid } = useNowGrid()
+  const { data: sdmNow } = useSdmNow()
 
   return useCallback(
     (lng, lat) => {
@@ -85,12 +88,15 @@ export function usePopup(): (lng: number, lat: number) => string | null {
         const cur = species.length ? species[0] : null
         const sp = cur ? (speciesOptions.find((item) => item.name === cur) ?? null) : null
         let best: (typeof grid)[number] | null = null
+        let bestIndex = -1
         let bestDistance = Infinity
-        for (const cell of grid) {
+        for (let i = 0; i < grid.length; i++) {
+          const cell = grid[i]
           const distance = Math.hypot(cell.lat - lat, cell.lon - lng)
           if (distance < bestDistance) {
             bestDistance = distance
             best = cell
+            bestIndex = i
           }
         }
 
@@ -101,13 +107,18 @@ export function usePopup(): (lng: number, lat: number) => string | null {
           !cellTouchesLand(best, meta.step, coast)
         ) {
           html += `<br/>SST ${empty(best.v, '°C')}`
-          html += sp
-            ? `<br/>${sp.name} 棲地適合度 ${suit(best.v, sp, meta.month, {
-                u: best.u,
-                w: best.w,
-                trend: best.tr,
-              })} / 100`
-            : '<br/>綜合潛在漁場格點'
+          if (sp) {
+            // 熱區判斷(hotspotLayers.ts)有 ML 模型時優先採用；這裡也同步用同一來源，
+            // 避免彈出視窗的數字跟熱區判斷邏輯矛盾(issue #14)。
+            const ml = mlSuitGrid(grid, meta.step, sdmNow, sp.name, meta.month)
+            const mlScore = ml ? ml[bestIndex] : null
+            const score =
+              mlScore ??
+              suit(best.v, sp, meta.month, { u: best.u, w: best.w, trend: best.tr })
+            html += `<br/>${sp.name} 棲地適合度 ${score} / 100${ml ? '（ML 模型）' : ''}`
+          } else {
+            html += '<br/>綜合潛在漁場格點'
+          }
           if (best.u !== undefined && best.w !== undefined) {
             html += `<br/>海流 ${Math.hypot(best.u, best.w).toFixed(2)} m/s，${dirName(bearingDeg(best.u, best.w))}`
           }
@@ -175,6 +186,7 @@ export function usePopup(): (lng: number, lat: number) => string | null {
       hires,
       coast,
       nowGrid,
+      sdmNow,
     ],
   )
 }
