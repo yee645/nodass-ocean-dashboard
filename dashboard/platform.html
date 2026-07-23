@@ -150,7 +150,7 @@
     <button class="infobtn" id="infoBtn" title="說明" aria-label="說明">i</button>
     <button class="lpane-x" id="leftCollapse" title="收合" aria-label="收合">&times;</button>
   </div>
-  <div class="lpane-sub">出航前參考：在過去/現在/未來之間切換，綜覽海象、環境與多魚種棲地潛勢｜產生 2026-07-22 15:43</div>
+  <div class="lpane-sub">出航前參考：在過去/現在/未來之間切換，綜覽海象、環境與多魚種棲地潛勢｜產生 2026-07-23 10:16</div>
   <div class="tabs"><a class="" target="_top" href="index.html">極端浪況預警</a><a class="active" target="_top" href="platform.html">漁場棲地平台（過去·現在·未來）</a></div>
   <div class="lp-label" style="padding:8px 12px 0;">時段</div>
   <div class="lp-seg" id="seg"></div>
@@ -175,7 +175,7 @@ const MODES=[
   ['forecast.html','未來 · CWA 預報','氣象署 OCM 未來數日海象(風/流/潮)+葉綠素，多魚種棲地與信心圖層'],
 ];
 const seg=document.getElementById('seg'), pf=document.getElementById('pf'), hint=document.getElementById('hint');
-const VER='202607221543';   // 以建置時間為版本，避免部署後子頁被瀏覽器快取成舊版(GitHub Pages)
+const VER='202607231016';   // 以建置時間為版本，避免部署後子頁被瀏覽器快取成舊版(GitHub Pages)
 function setMode(i){pf.src=MODES[i][0]+'?v='+VER; hint.textContent=MODES[i][2];
   [...seg.children].forEach((c,j)=>c.classList.toggle('on',j===i));}
 MODES.forEach(([src,label],i)=>{const b=document.createElement('button');b.textContent=label;
