@@ -4,6 +4,7 @@ import { heat } from '@/map/layers/nowMath'
 import SpeciesCard from './now/SpeciesCard'
 import StationTable from './now/StationTable'
 import SstChart from './now/SstChart'
+import RoutePanel from './now/RoutePanel'
 
 const heatBar = `linear-gradient(90deg, ${Array.from({ length: 10 }, (_, i) => {
   const [r, g, b] = heat(i * 10)
@@ -124,6 +125,7 @@ export default function NowPanel() {
       {cur != null && <SpeciesCard />}
       <StationTable />
       <SstChart />
+      <RoutePanel />
     </>
   )
 }

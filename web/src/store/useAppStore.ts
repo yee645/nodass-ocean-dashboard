@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import type { Objective } from '@/map/route/costGrid'
+import type { RoutePoint, RouteResult } from '@/map/route/astar'
 
 /** 三個時段：過去(衛星高解析)/現在(即時浮標)/未來(CWA 預報)。 */
 export type TimeMode = 'past' | 'now' | 'future'
@@ -44,6 +46,19 @@ interface AppState {
   leftPanelOpen: boolean
   layerPanelCollapsed: boolean
 
+  // 第二層：航線規劃（現在時段）
+  routePicking: 'start' | 'end' | 'waypoint' | null
+  routeStart: RoutePoint | null
+  routeEnd: RoutePoint | null
+  routeWaypoints: RoutePoint[] // 起訖點之間的手動中繼站，依序規劃
+  routeObjective: Objective
+  routeMaxRangeNm: number | null // null = 不限
+  routeDraftM: number // 0 = 不限
+  routeAvoidZones: boolean
+  routeSpeedKt: number // 船速(節)，估算 ETA 用
+  routeShowDepth: boolean // 顯示水深參考圖層
+  routeResult: RouteResult | null
+
   setTimeMode: (m: TimeMode) => void
   setBaseField: (f: BaseField) => void
   toggleOverlay: (k: keyof Overlays) => void
@@ -56,6 +71,20 @@ interface AppState {
   setSelectedStation: (id: string | null) => void
   setLeftPanelOpen: (b: boolean) => void
   toggleLayerPanel: () => void
+
+  setRoutePicking: (p: 'start' | 'end' | 'waypoint' | null) => void
+  setRouteStart: (p: RoutePoint | null) => void
+  setRouteEnd: (p: RoutePoint | null) => void
+  addRouteWaypoint: (p: RoutePoint) => void
+  removeRouteWaypoint: (index: number) => void
+  clearRouteWaypoints: () => void
+  setRouteObjective: (o: Objective) => void
+  setRouteMaxRangeNm: (nm: number | null) => void
+  setRouteDraftM: (m: number) => void
+  setRouteAvoidZones: (b: boolean) => void
+  setRouteSpeedKt: (kt: number) => void
+  setRouteShowDepth: (b: boolean) => void
+  setRouteResult: (r: RouteResult | null) => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -71,6 +100,18 @@ export const useAppStore = create<AppState>((set) => ({
   selectedStationId: null,
   leftPanelOpen: true,
   layerPanelCollapsed: false,
+
+  routePicking: null,
+  routeStart: null,
+  routeEnd: null,
+  routeWaypoints: [],
+  routeObjective: 'fish',
+  routeMaxRangeNm: null,
+  routeDraftM: 0,
+  routeAvoidZones: true,
+  routeSpeedKt: 8,
+  routeShowDepth: false,
+  routeResult: null,
 
   // 切時段：base 欄位不在新時段白名單時重設為 sst（保留仍適用者）。
   setTimeMode: (timeMode) =>
@@ -93,4 +134,20 @@ export const useAppStore = create<AppState>((set) => ({
   setLeftPanelOpen: (leftPanelOpen) => set({ leftPanelOpen }),
   toggleLayerPanel: () =>
     set((s) => ({ layerPanelCollapsed: !s.layerPanelCollapsed })),
+
+  setRoutePicking: (routePicking) => set({ routePicking }),
+  setRouteStart: (routeStart) => set({ routeStart }),
+  setRouteEnd: (routeEnd) => set({ routeEnd }),
+  addRouteWaypoint: (p) =>
+    set((s) => ({ routeWaypoints: [...s.routeWaypoints, p] })),
+  removeRouteWaypoint: (index) =>
+    set((s) => ({ routeWaypoints: s.routeWaypoints.filter((_, i) => i !== index) })),
+  clearRouteWaypoints: () => set({ routeWaypoints: [] }),
+  setRouteObjective: (routeObjective) => set({ routeObjective }),
+  setRouteMaxRangeNm: (routeMaxRangeNm) => set({ routeMaxRangeNm }),
+  setRouteDraftM: (routeDraftM) => set({ routeDraftM }),
+  setRouteAvoidZones: (routeAvoidZones) => set({ routeAvoidZones }),
+  setRouteSpeedKt: (routeSpeedKt) => set({ routeSpeedKt }),
+  setRouteShowDepth: (routeShowDepth) => set({ routeShowDepth }),
+  setRouteResult: (routeResult) => set({ routeResult }),
 }))

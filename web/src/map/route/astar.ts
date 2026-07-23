@@ -36,7 +36,7 @@ export interface RouteResult {
 const R_EARTH = 6371
 const DEG = Math.PI / 180
 
-function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
+export function haversineKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const u =
     Math.sin(((bLat - aLat) * DEG) / 2) ** 2 +
     Math.cos(aLat * DEG) * Math.cos(bLat * DEG) * Math.sin(((bLon - aLon) * DEG) / 2) ** 2
@@ -173,4 +173,19 @@ export function astar(input: AstarInput): RouteResult | null {
     lengthKm += haversineKm(a.lat, a.lon, b.lat, b.lon)
   }
   return { path, cost: gScore[g], lengthKm, cells: idxPath }
+}
+
+/** 把多段 A* 結果（起點→中繼1→中繼2→…→終點）串成一條完整航線。 */
+export function mergeRouteResults(results: RouteResult[]): RouteResult {
+  const path: [number, number][] = []
+  const cells: number[] = []
+  let cost = 0
+  let lengthKm = 0
+  results.forEach((r, i) => {
+    path.push(...(i === 0 ? r.path : r.path.slice(1))) // 避免相鄰兩段的銜接點重複
+    cells.push(...(i === 0 ? r.cells : r.cells.slice(1)))
+    cost += r.cost
+    lengthKm += r.lengthKm
+  })
+  return { path, cost, lengthKm, cells }
 }

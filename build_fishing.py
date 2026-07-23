@@ -92,8 +92,8 @@ def idw(points: list[tuple[float, float, float]], lat: float, lon: float):
     return None
 
 
-def build_combined_grid(sst_pts, u_pts, v_pts, tr_pts) -> list[dict]:
-    """細網格內插 SST、海流 u/v、SST 趨勢；網格集合由 SST 可內插範圍決定。"""
+def build_combined_grid(sst_pts, u_pts, v_pts, tr_pts, wave_pts) -> list[dict]:
+    """細網格內插 SST、海流 u/v、SST 趨勢、示性波高；網格集合由 SST 可內插範圍決定。"""
     grid = []
     lat = 20.0
     while lat <= 27.0:
@@ -107,11 +107,14 @@ def build_combined_grid(sst_pts, u_pts, v_pts, tr_pts) -> list[dict]:
                     u = idw(u_pts, lat, lon)
                     w = idw(v_pts, lat, lon)
                     tr = idw(tr_pts, lat, lon)
+                    wave = idw(wave_pts, lat, lon)
                     if u is not None and w is not None:
                         cell["u"] = round(u, 3)
                         cell["w"] = round(w, 3)
                     if tr is not None:
                         cell["tr"] = round(tr, 3)
+                    if wave is not None:
+                        cell["wave"] = round(wave, 2)
                     grid.append(cell)
             lon += GRID_STEP
         lat += GRID_STEP
@@ -135,6 +138,7 @@ def build() -> None:
             "u": uv[0] if uv else None, "w": uv[1] if uv else None,
             "trend": sst_trend(recs),
             "sst_series": sst_series(recs),
+            "wave": latest(recs, "Wave_Height_Significant"),
         })
     sst_st = [s for s in stations if s["sst"] is not None]
 
@@ -180,7 +184,8 @@ def build() -> None:
     u_pts = [(s["lat"], s["lon"], s["u"]) for s in stations if s.get("u") is not None]
     v_pts = [(s["lat"], s["lon"], s["w"]) for s in stations if s.get("w") is not None]
     tr_pts = [(s["lat"], s["lon"], s["trend"]) for s in stations if s.get("trend") is not None]
-    grid = build_combined_grid(sst_pts, u_pts, v_pts, tr_pts)
+    wave_pts = [(s["lat"], s["lon"], s["wave"]) for s in stations if s.get("wave") is not None]
+    grid = build_combined_grid(sst_pts, u_pts, v_pts, tr_pts, wave_pts)
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     html = (TPL.replace("__CSS__", SHARED_CSS)
