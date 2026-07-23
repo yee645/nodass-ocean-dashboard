@@ -54,6 +54,7 @@ export interface CoreOptions {
 
 export interface ScoreOptions {
   suitMax?: number // 同學 suit 的上限(預設 100，換算成 0–1)
+  minSuit?: number // 絕對適合度門檻(0–100，預設 35，對齊 nowMath.colorFor 的低/中分界)
 }
 
 const DEG_KM = 111.32
@@ -197,6 +198,11 @@ function diff(
 /**
  * 魚場分數 = 同學環境適合度(envSuit) × 歷史出現密度(飽和式 gate)，標準化 0–1。
  * 相乘(而非相加)：唯有「環境合適」且「歷史會出現」兩者同時成立才高分 → 熱區自然收緊、貼近真實漁場。
+ *
+ * 絕對門檻 minSuit（issue #14 修正）：normalize() 是「該魚種當下這批格點的相對最高分」，
+ * 若不設絕對下限，環境適合度全面偏低時，仍會有某格「矮子裡拔將軍」被歸一化成 1.0 而入選核心，
+ * 造成使用者點進熱區、看到「適合度 18.9/100」這種顯示上自相矛盾的結果。故先用 minSuit
+ * 濾掉環境本身就不合格的格子，只在「環境及格(≥minSuit)且歷史有出現」的格子裡比相對高低。
  */
 export function fishScore(
   envSuit: (number | null)[],
@@ -204,9 +210,10 @@ export function fishScore(
   opts: ScoreOptions = {},
 ): number[] {
   const suitMax = opts.suitMax ?? 100
-  // density 已是飽和式 0–1；直接相乘 gate(環境合適 且 歷史會出現)，再標準化。
+  const minSuit = opts.minSuit ?? 35
+  // density 已是飽和式 0–1；先擋掉環境適合度未達門檻的格子，再相乘 gate、標準化。
   const raw = envSuit.map((s, i) => {
-    if (s == null || s <= 0) return 0
+    if (s == null || s < minSuit) return 0
     return Math.max(0, Math.min(1, s / suitMax)) * (density[i] ?? 0)
   })
   return normalize(raw)

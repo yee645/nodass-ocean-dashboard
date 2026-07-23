@@ -15,6 +15,7 @@ import {
   stationLayer,
 } from './layers/nowLayers'
 import { hotspotCoreLayers } from './layers/hotspotLayers'
+import { gridCoverageLayer } from './layers/coverageLayer'
 import { useOccurrences, useBathymetry } from '@/data/useExtras'
 import { hiresGridLayer } from './layers/hiresLayer'
 import { resolveHiresKeys } from './layers/hiresMath'
@@ -80,6 +81,7 @@ export function useDeckLayers(): Layer[] {
     if (timeMode === 'now' && fishing) {
       const { meta, species: speciesOptions, stations } = fishing
       const grid = nowGrid ?? fishing.grid
+      layers.push(gridCoverageLayer(grid, meta.step))
       const currentSpecies = species.length ? species[0] : null
       const sp = currentSpecies
         ? (speciesOptions.find((s) => s.name === currentSpecies) ?? null)

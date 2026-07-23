@@ -122,6 +122,14 @@ export default function NowPanel() {
         )}
       </div>
 
+      {cur != null && fishMove && (
+        <div className="type-caption text-muted">
+          熱區判斷標準：環境適合度需達 35 分以上，且該魚種在此海域附近有歷史出現紀錄支持，
+          兩者同時成立才會標示核心。適合度高但無熱區，通常代表此處尚無該魚種歷史紀錄可佐證
+          （非「這裡沒有魚」）；虛線框代表浮標可內插的資料涵蓋範圍，框外無資料參考。
+        </div>
+      )}
+
       {cur != null && <SpeciesCard />}
       <StationTable />
       <SstChart />
