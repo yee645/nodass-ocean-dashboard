@@ -48,7 +48,7 @@
   - `build_platform.py` → `dashboard/platform.html`：整合入口。
 - **共用**：`dashboard_common.py`（SHARED_CSS、nav_html、海岸線遮罩 on_land、IDW、海岸線）。
 - **資料管線**：`fetch_buoys.py`、`fetch_satellite.py`+`sat_digitize.py`（衛星數位化）、`fetch_ocm_forecast.py`（CWA OCM）、`fetch_tfrin_env.py`（TFRIN PDF）、`build_occurrences.py`（整併物種出現點）、`build_sdm.py`（presence-only 高斯包絡 SDM）。
-- **航線規劃（第二層）資料**：`build_ports.py`（漁港起點 `sdm/ports.json`）、`build_bathymetry.py`（GEBCO 水深重取樣 `sdm/bathymetry.json`，**需人工下載一次原始檔**，見下方 gitignored 資料）、`fetch_conservation_zones.py`（漁業資源保育區文字座標解析 `sdm/restricted_zones.json`，含人工抽查機制）、`fetch_tide.py`（潮汐測站目前潮位 `sdm/tide.json`，scaffold，需 `.cwa_token`，供水深門檻做單點潮位修正，非全網格逐時模擬）。
+- **航線規劃（第二層）資料**：`build_ports.py`（漁港起點 `sdm/ports.json`）、`build_bathymetry.py`（純 Python 讀 GEBCO GeoTIFF(`nodass.tif`，需人工從 download.gebco.net 下載一次)，用 tifffile 讀像素陣列＋numpy 分級＋skimage 的 `find_contours`(取代 QGIS polygonize+dissolve)/`approximate_polygon`(取代 QGIS simplify) 產生等深帶多邊形 `sdm/depth_bands.json`；不需 QGIS/GDAL——這一步是離線一次性資料前處理，非即時後端，不影響本專案純靜態前端架構）、`fetch_conservation_zones.py`（漁業資源保育區文字座標解析 `sdm/restricted_zones.json`，含人工抽查機制）、`fetch_tide.py`（潮汐測站目前潮位 `sdm/tide.json`，scaffold，需 `.cwa_token`，供水深門檻做單點潮位修正，非全網格逐時模擬）。
 - **魚種習性**：`species_traits.py`（10 種經濟魚種適溫窗、季節、習性）。
 - `live_update.py`：fetch_buoys → accumulate_history → build_dashboard → build_fishing。
 - `make_region_coast.py`：由 Natural Earth 產生 `region_coast.json`（含中國大陸沿海，供陸地遮罩/底圖）。
@@ -59,7 +59,7 @@
 3. `python build_forecast.py`（自動抓 CWA OCM + GOCI，需網路）
 4. `python build_platform.py`
 5.（選用）`build_occurrences.py` 需 `data/` 原始生物資料；其輸出 `sdm/occurrences.csv` 已上傳，故 `build_sdm.py`/`build_hires.py` 不需原始資料即可跑。
-6.（開發 `web/` 時）`python sync_web_data.py`：把 `sdm/forecast_grid.json`、`sdm/hires_grid.json`、`sdm/fishing_grid.json`、`region_coast.json`、`sdm/ports.json`、`sdm/occurrences_web.json`、`sdm/bathymetry.json`、`sdm/restricted_zones.json`、`sdm/tide.json` 複製到 `web/public/data/`，React 端才吃得到新資料。尚未併入 `setup.sh`，Python 產物更新後需手動執行。
+6.（開發 `web/` 時）`python sync_web_data.py`：把 `sdm/forecast_grid.json`、`sdm/hires_grid.json`、`sdm/fishing_grid.json`、`region_coast.json`、`sdm/ports.json`、`sdm/occurrences_web.json`、`sdm/depth_bands.json`、`sdm/restricted_zones.json`、`sdm/tide.json` 複製到 `web/public/data/`，React 端才吃得到新資料。尚未併入 `setup.sh`，Python 產物更新後需手動執行。
 
 ## React 前端（`web/`）— 重構進行中，尚未部署
 > 目標：功能/API 與現有 `dashboard/*.html` **1:1 一致**，只做美化與加速；科學計算仍在 Python，TS 端不重算。
@@ -104,11 +104,12 @@
   - 來源：TaiBIF IPT https://ipt.taibif.tw 、GBIF 資料集搜尋 https://www.gbif.org/dataset/search（底拖=bottom_trawl、深海=deep-sea-fishes）。
   - 註：**僅 `build_occurrences.py` 需要這些原始檔**；其輸出 `sdm/occurrences.csv` 已隨庫提供，下游 `build_sdm`/`build_hires` 不需原始資料。
 - `_sat_cache/`、`_tfrin_pdf/`：由 `fetch_satellite.py`/`fetch_tfrin_env.py` 自動重抓（開放、免金鑰）。
-- `_bathy_cache/gebco.asc`（GEBCO 水深原始網格）：
-  - GEBCO 無可直接打 bbox 的公開 API（OPeNDAP 走 CEDA 需帳號），**需人工下載一次**：開
-    https://download.gebco.net/ ，用內建 bounding box 工具框 `lon 117~123, lat 20~27`，
-    格式選 **Esri ASCII raster (.asc)**，存成 `_bathy_cache/gebco.asc`。
-  - 之後執行 `python build_bathymetry.py` 產生 `sdm/bathymetry.json`；水深是靜態資料，只需做一次。
+- `nodass.tif`（GEBCO 水深 GeoTIFF，repo 根目錄）：
+  - GEBCO 無可直接打 bbox 的公開 API（OPeNDAP 走 CEDA 需帳號），**需人工下載一次**：
+    https://download.gebco.net 用官方 bbox 工具下載 `lon 117~123, lat 20~27`、Layer 選
+    `Bathymetry`、Format 選 `Geotiff (Data)`，存成 `nodass.tif`。
+  - 之後執行 `python build_bathymetry.py` 產生 `sdm/depth_bands.json`：純 Python(tifffile+numpy+
+    skimage)分級/取等值線/化簡，不需 QGIS/GDAL。水深是靜態資料，只需做一次。
 - `sdm/restricted_zones_manual.json`（選用）：`fetch_conservation_zones.py` 自動解析不出座標的
   漁業資源保育區記錄會印到 stdout，人工查證後可手動整理成同格式（`[{name, county, level, polygon}]`）
   存這個檔，腳本會自動合併進 `sdm/restricted_zones.json`。

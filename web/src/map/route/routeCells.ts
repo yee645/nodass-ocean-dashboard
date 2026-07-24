@@ -2,7 +2,7 @@
  * 把「現在」時段的 fishing_grid 併入水深/保育區/陸地限制，組成餵給 costGrid/astar 的 RouteCell[]。
  */
 import type { FishCell, Species, CoastGeoJSON } from '@/data/contracts'
-import type { BathymetryPayload, RestrictedZone } from '@/data/useExtras'
+import type { DepthBand, RestrictedZone } from '@/data/useExtras'
 import type { RouteCell } from './costGrid'
 import { isLand, pointInRing } from '../layers/coastMask'
 import { suit } from '../layers/nowMath'
@@ -12,30 +12,54 @@ export interface BuildRouteCellsInput {
   month: number
   species: Species | null
   coast?: CoastGeoJSON
-  bathymetry?: BathymetryPayload
+  depthBands?: DepthBand[]
   zones?: RestrictedZone[]
   draftM: number // 吃水限制(公尺)，0 = 不限
   avoidZones: boolean
   tideOffsetM?: number // 最近潮汐測站目前潮位(公尺)，加到水深門檻做單點修正；預設 0(不修正)
 }
 
-export function buildRouteCells(input: BuildRouteCellsInput): RouteCell[] {
-  const { grid, month, species, coast, bathymetry, zones, draftM, avoidZones, tideOffsetM = 0 } = input
+interface BandBox extends DepthBand {
+  bbox: [number, number, number, number] // minLon, minLat, maxLon, maxLat，pointInRing 前的快速排除
+}
 
-  const depthByKey = new Map<string, number>()
-  if (bathymetry) {
-    for (const c of bathymetry.cells) {
-      const key = `${Math.round(c.lat / bathymetry.step)}|${Math.round(c.lon / bathymetry.step)}`
-      depthByKey.set(key, c.depth)
+function withBbox(bands: DepthBand[]): BandBox[] {
+  return bands.map((b) => {
+    let minLon = Infinity
+    let minLat = Infinity
+    let maxLon = -Infinity
+    let maxLat = -Infinity
+    for (const [lon, lat] of b.polygon) {
+      if (lon < minLon) minLon = lon
+      if (lon > maxLon) maxLon = lon
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
     }
+    return { ...b, bbox: [minLon, minLat, maxLon, maxLat] }
+  })
+}
+
+/** 涵蓋該點的等深帶中最淺(保守)的下限水深；找不到涵蓋的帶時回傳 null(無資料，不擋)。 */
+function shallowestMinDepth(bands: BandBox[], lon: number, lat: number): number | null {
+  let best: number | null = null
+  for (const b of bands) {
+    const [minLon, minLat, maxLon, maxLat] = b.bbox
+    if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue
+    if (!pointInRing(lon, lat, b.polygon)) continue
+    if (best === null || b.minDepth < best) best = b.minDepth
   }
+  return best
+}
+
+export function buildRouteCells(input: BuildRouteCellsInput): RouteCell[] {
+  const { grid, month, species, coast, depthBands, zones, draftM, avoidZones, tideOffsetM = 0 } = input
+  const bands = depthBands ? withBbox(depthBands) : null
 
   return grid.map((cell) => {
     let blocked = isLand(cell.lon, cell.lat, coast)
 
-    if (!blocked && bathymetry && draftM > 0) {
-      const key = `${Math.round(cell.lat / bathymetry.step)}|${Math.round(cell.lon / bathymetry.step)}`
-      const depth = depthByKey.get(key)
+    if (!blocked && bands && draftM > 0) {
+      const depth = shallowestMinDepth(bands, cell.lon, cell.lat)
       if (depth != null && depth + tideOffsetM < draftM) blocked = true
     }
 

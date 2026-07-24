@@ -15,7 +15,7 @@ import {
   stationLayer,
 } from './layers/nowLayers'
 import { hotspotCoreLayers } from './layers/hotspotLayers'
-import { useOccurrences, useBathymetry } from '@/data/useExtras'
+import { useOccurrences, useDepthBands } from '@/data/useExtras'
 import { hiresGridLayer } from './layers/hiresLayer'
 import { resolveHiresKeys } from './layers/hiresMath'
 import { landMaskLayer } from './layers/landMaskLayer'
@@ -42,7 +42,7 @@ export function useDeckLayers(): Layer[] {
   const { data: fishing } = useFishingData()
   const { data: hires } = useHiresData()
   const { data: occ } = useOccurrences()
-  const { data: bathymetry } = useBathymetry()
+  const { data: depthBands } = useDepthBands()
   const { grid: nowGrid } = useNowGrid()
 
   return useMemo<Layer[]>(() => {
@@ -96,7 +96,7 @@ export function useDeckLayers(): Layer[] {
         }
       }
       layers.push(stationLayer(stations, sp ? sp.name : null))
-      if (routeShowDepth && bathymetry) layers.push(bathymetryLayer(bathymetry))
+      if (routeShowDepth && depthBands) layers.push(bathymetryLayer(depthBands))
       layers.push(...routeLayers(routeResult, routeStart, routeEnd, routeWaypoints))
     }
 
@@ -135,6 +135,6 @@ export function useDeckLayers(): Layer[] {
     routeEnd,
     routeWaypoints,
     routeShowDepth,
-    bathymetry,
+    depthBands,
   ])
 }

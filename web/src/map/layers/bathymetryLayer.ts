@@ -1,6 +1,6 @@
 import { PolygonLayer } from '@deck.gl/layers'
 import type { Layer } from '@deck.gl/core'
-import type { BathymetryPayload } from '@/data/useExtras'
+import type { DepthBand } from '@/data/useExtras'
 
 // 淺→深：淺色警示、深色安全，跟 RdYlGn 系列的邏輯呼應但不用色相跳動的彩虹色。
 const DEPTH_REF = 200 // m，超過此深度視為「深」，不再加深顏色
@@ -13,19 +13,13 @@ function depthColor(depth: number): [number, number, number, number] {
   return [r, g, b, 90]
 }
 
-/** 水深參考圖層（第二層航線規劃用，非正式等深線，僅供吃水限制的直覺對照）。 */
-export function bathymetryLayer(bathymetry: BathymetryPayload): Layer {
-  const half = bathymetry.step / 2
+/** 水深分級圖層（第二層航線規劃用，PyQGIS 對 GEBCO 分級+polygonize 匯出的等深帶，非正式航行圖）。 */
+export function bathymetryLayer(bands: DepthBand[]): Layer {
   return new PolygonLayer({
     id: 'bathymetry-depth',
-    data: bathymetry.cells,
-    getPolygon: (c) => [
-      [c.lon - half, c.lat - half],
-      [c.lon + half, c.lat - half],
-      [c.lon + half, c.lat + half],
-      [c.lon - half, c.lat + half],
-    ],
-    getFillColor: (c) => depthColor(c.depth),
+    data: bands,
+    getPolygon: (b) => b.polygon,
+    getFillColor: (b) => depthColor((b.minDepth + b.maxDepth) / 2),
     stroked: false,
     filled: true,
     pickable: false,

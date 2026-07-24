@@ -1,16 +1,19 @@
-"""水深資料處理：把本機 GEBCO 水深網格重取樣成航線規劃用的 0.05° 格網（第二層水深限制）。
+"""水深分級圖層：把 GEBCO 水深 GeoTIFF 轉成 web 端要吃的 sdm/depth_bands.json。
 
-GEBCO 沒有可直接用經緯度 bbox 打的公開 API（OPeNDAP 走 CEDA，需帳號），改採「人工下載一次、
-程式在地處理」——比照本專案 data/ 原始生物資料的既有慣例（見 CLAUDE.md）：
+純 Python 處理，不需 QGIS/GDAL：
+- GEBCO GeoTIFF 是規則經緯度網格，座標由 ModelPixelScaleTag + ModelTiepointTag 兩個
+  tag 就能還原（EPSG:4326），用 tifffile 讀像素陣列即可，不需 rasterio/GDAL。
+- 用 numpy 依深度門檻分級，skimage.measure.find_contours 對每一級的二值遮罩取
+  0.5 等值線，效果等同 QGIS 的 polygonize+dissolve（同一分級天然合併成一輪廓）；
+  skimage.measure.approximate_polygon 做 Douglas-Peucker 簡化，效果等同 QGIS 的
+  Simplify，減少前端 point-in-polygon 要跑的頂點數。
+- 降取樣(DOWNSAMPLE)取每個區塊的最淺點(depth 最小值)，故意保守，避免降解析度時
+  把淺水區平均掉、讓吃水限制判斷失真。
 
-  1. 開 https://download.gebco.net/ ，用內建 bounding box 工具框台灣周邊海域
-     （建議 lon 117~123、lat 20~27），格式選 **Esri ASCII raster (.asc)**
-     （純文字格式，免額外套件即可解析；不要選 netCDF，需要 netCDF4 套件）。
-  2. 下載後把 .asc 檔放到 `_bathy_cache/gebco.asc`（此資料夾已 gitignore）。
-  3. 執行 `python build_bathymetry.py`，輸出 `sdm/bathymetry.json`。
-
-水深是靜態資料，只需做一次（除非要換更高解析度來源），不需排進 setup.sh / live_update.py。
-輸出網格原點/步進對齊 `build_fishing.py` 的 GRID_STEP，供前端航線規劃依經緯度直接對齊查表。
+輸入：`nodass.tif`（GEBCO bbox 匯出，使用者用官方 download.gebco.net 的 bbox 工具下載，
+      無可程式化的公開 bbox API，需人工下載一次；水深是靜態資料，不需每次 build 重抓）。
+輸出：`sdm/depth_bands.json`：[{name, minDepth, maxDepth, polygon:[[lon,lat],...]}]，
+      本圖層是航線規劃參考用途，非精確航行圖，不支援多邊形內環(洞)。
 """
 from __future__ import annotations
 
@@ -18,68 +21,77 @@ import json
 from pathlib import Path
 
 import numpy as np
-
-from dashboard_common import on_land
+import tifffile
+from skimage.measure import approximate_polygon, find_contours
 
 BASE = Path(__file__).resolve().parent
-SRC = BASE / "_bathy_cache" / "gebco.asc"
-OUT = BASE / "sdm" / "bathymetry.json"
+SRC = BASE / "nodass.tif"
+OUT = BASE / "sdm" / "depth_bands.json"
 
-GRID_STEP = 0.05      # 需與 build_fishing.py 的 GRID_STEP 一致，確保前端對齊查表
-LAT0, LAT1 = 20.0, 27.0
-LON0, LON1 = 117.0, 123.0
+BANDS = [(0, 20), (20, 50), (50, 100), (100, 200), (200, 12000)]  # 深度分級門檻(公尺)
+DOWNSAMPLE = 4  # 15弧秒原始網格對航線規劃過細，降取樣減少多邊形頂點數
+SIMPLIFY_TOL_DEG = 0.01  # Douglas-Peucker 容差，約 1 公里
+MIN_POINTS = 4  # 簡化後少於這個點數視為雜訊，丟棄
 
 
-def read_esri_ascii(path: Path):
-    """讀 Esri ASCII Grid（GEBCO bbox 下載工具輸出格式）。回傳 (values, xll, yll, cellsize, nodata)。"""
-    with path.open("r", encoding="utf-8") as f:
-        header = {}
-        for _ in range(6):
-            key, val = f.readline().split()
-            header[key.lower()] = val
-        ncols = int(header["ncols"])
-        nrows = int(header["nrows"])
-        xll = float(header.get("xllcorner", header.get("xllcenter")))
-        yll = float(header.get("yllcorner", header.get("yllcenter")))
-        cellsize = float(header["cellsize"])
-        nodata = float(header.get("nodata_value", -9999))
-        values = np.loadtxt(f, dtype=np.float32).reshape(nrows, ncols)
-    return values, xll, yll, cellsize, nodata
+def _load_depth() -> tuple[np.ndarray, float, float, float]:
+    """回傳 (depth, lon0, lat0, scale)：depth[0,0] 對應 (lon0, lat0)（西南角），
+    正值＝水深(公尺)，陸地/無資料設為 -1（分級門檻皆 >=0，天然被排除）。"""
+    page = tifffile.TiffFile(SRC).pages[0]
+    scale = float(page.tags["ModelPixelScaleTag"].value[0])
+    tiepoint = page.tags["ModelTiepointTag"].value
+    lon_topleft, lat_topleft = tiepoint[3], tiepoint[4]
+
+    elevation = tifffile.imread(SRC).astype(np.float32)  # row0=北, col0=西
+    elevation = np.flipud(elevation)  # row0=南，跟 lat 遞增方向一致
+    lat0 = lat_topleft - (elevation.shape[0] - 1) * scale
+    lon0 = lon_topleft
+
+    depth = np.where(elevation < 0, -elevation, np.inf)  # 陸地設 +inf，降取樣取 min 時不會被選到
+    if DOWNSAMPLE > 1:
+        from skimage.measure import block_reduce
+
+        depth = block_reduce(depth, (DOWNSAMPLE, DOWNSAMPLE), np.min)
+        lon0 += (DOWNSAMPLE - 1) / 2 * scale
+        lat0 += (DOWNSAMPLE - 1) / 2 * scale
+        scale *= DOWNSAMPLE
+    depth[np.isinf(depth)] = -1  # 整格皆陸地
+    return depth, lon0, lat0, scale
+
+
+def _band_polygons(mask: np.ndarray, lon0: float, lat0: float, scale: float) -> list[list[list[float]]]:
+    polygons = []
+    for contour in find_contours(mask.astype(np.float32), 0.5):
+        simplified = approximate_polygon(contour, tolerance=SIMPLIFY_TOL_DEG / scale)
+        if len(simplified) < MIN_POINTS:
+            continue
+        polygons.append([[round(lon0 + c * scale, 5), round(lat0 + r * scale, 5)] for r, c in simplified])
+    return polygons
 
 
 def main() -> None:
     if not SRC.exists():
-        print(f"找不到 {SRC}，請先依本檔開頭說明手動下載 GEBCO bbox（Esri ASCII 格式）")
+        print(f"找不到 {SRC}，請先用 https://download.gebco.net 的 bbox 工具下載 GeoTIFF"
+              f"（lon 117~123, lat 20~27），存成 {SRC.name}。")
         return
 
-    values, xll, yll, cellsize, nodata = read_esri_ascii(SRC)
-    nrows, ncols = values.shape
-    top_lat = yll + (nrows - 1) * cellsize   # row 0 = 最北（Esri ASCII 由北到南存列）
-
-    cells = []
-    lat = LAT0
-    while lat <= LAT1:
-        lon = LON0
-        while lon <= LON1:
-            if not on_land(lon, lat):
-                row = int(round((top_lat - lat) / cellsize))
-                col = int(round((lon - xll) / cellsize))
-                if 0 <= row < nrows and 0 <= col < ncols:
-                    elev = float(values[row, col])
-                    if elev != nodata and elev < 0:   # 只留海域(高程<0)，陸地已由 coast mask 處理
-                        cells.append({
-                            "lat": round(lat, 3), "lon": round(lon, 3),
-                            "depth": round(-elev, 1),   # 正值水深(公尺)
-                        })
-            lon += GRID_STEP
-        lat += GRID_STEP
+    depth, lon0, lat0, scale = _load_depth()
+    bands = []
+    for depth_min, depth_max in BANDS:
+        mask = (depth >= depth_min) & (depth < depth_max)
+        if not mask.any():
+            continue
+        for polygon in _band_polygons(mask, lon0, lat0, scale):
+            bands.append({
+                "name": f"{depth_min:g}-{depth_max:g}m",
+                "minDepth": float(depth_min),
+                "maxDepth": float(depth_max),
+                "polygon": polygon,
+            })
 
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(
-        json.dumps({"step": GRID_STEP, "cells": cells}, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
-    print(f"已產生 {OUT}　格點數={len(cells)}（來源網格 {ncols}x{nrows}, cellsize={cellsize}°）")
+    OUT.write_text(json.dumps(bands, ensure_ascii=False), encoding="utf-8")
+    print(f"寫入 {OUT}，共 {len(bands)} 個等深帶多邊形")
 
 
 if __name__ == "__main__":

@@ -30,15 +30,13 @@ export interface Port {
   lon: number
 }
 
-/** 水深格點（build_bathymetry.py，GEBCO 重取樣）：第二層吃水限制用。 */
-export interface BathymetryCell {
-  lat: number
-  lon: number
-  depth: number // 正值水深(公尺)
-}
-export interface BathymetryPayload {
-  step: number
-  cells: BathymetryCell[]
+/** 等深帶多邊形（build_bathymetry.py，來源為 PyQGIS 對 GEBCO 分級+polygonize 匯出）：
+ * 第二層吃水限制與水深參考圖層用。minDepth 為該帶最淺水深，吃水判斷取保守值。 */
+export interface DepthBand {
+  name: string
+  minDepth: number
+  maxDepth: number
+  polygon: [number, number][] // 外環，[lon, lat]
 }
 
 /** 漁業資源保育區（fetch_conservation_zones.py 解析）：第二層避開區域。 */
@@ -73,11 +71,12 @@ export function usePorts() {
   })
 }
 
-/** 水深格點（第二層吃水限制用）。 */
-export function useBathymetry() {
+/** 等深帶多邊形（第二層吃水限制/水深參考圖層用）。 */
+export function useDepthBands() {
   return useQuery({
-    queryKey: ['bathymetry'],
-    queryFn: () => fetchJson<BathymetryPayload>('bathymetry.json'),
+    queryKey: ['depth_bands'],
+    queryFn: () => fetchJson<DepthBand[]>('depth_bands.json'),
+    retry: false,
   })
 }
 

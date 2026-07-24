@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAppStore } from '@/store/useAppStore'
 import { useFishingData, useCoast } from '@/data/useData'
-import { usePorts, useBathymetry, useRestrictedZones, useTide, nearestTideM, type Port } from '@/data/useExtras'
+import { usePorts, useDepthBands, useRestrictedZones, useTide, nearestTideM, type Port } from '@/data/useExtras'
 import { buildRouteCells } from '@/map/route/routeCells'
 import { buildCostField, type Objective } from '@/map/route/costGrid'
 import { astar, mergeRouteResults, type RoutePoint } from '@/map/route/astar'
@@ -46,7 +46,7 @@ export default function RoutePanel() {
   const { data: fishing } = useFishingData()
   const { data: coast } = useCoast()
   const { data: ports } = usePorts()
-  const { data: bathymetry } = useBathymetry()
+  const { data: depthBands } = useDepthBands()
   const { data: zones } = useRestrictedZones()
   const { data: tide } = useTide()
 
@@ -87,7 +87,7 @@ export default function RoutePanel() {
       month: fishing.meta.month,
       species: curSpecies,
       coast,
-      bathymetry,
+      depthBands,
       zones,
       draftM: routeDraftM,
       avoidZones: routeAvoidZones,
