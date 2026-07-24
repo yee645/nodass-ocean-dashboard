@@ -31,6 +31,7 @@ OUT_JSON = BASE / "sdm" / "hires_grid.json"
 OUT_HTML = BASE / "dashboard" / "hires.html"
 OCC_CSV = BASE / "sdm" / "occurrences.csv"
 SDM_REPORT = BASE / "sdm" / "hires_sdm_report.csv"
+TRAIN_DATASET = BASE / "sdm" / "sdm_training_dataset.csv"
 
 # 目標區與解析度（可自由調整：擴大區域/改日期窗即可換不同漁場與季節）
 TARGET = (119.8, 123.4, 22.0, 26.4)     # (west, east, south, north) 北+東+南；西界受 Sentinel-3 footprint 限制
@@ -147,6 +148,8 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
     rng = np.random.default_rng(42)
     bg = bg_idx[rng.choice(len(bg_idx), min(2000, len(bg_idx)), replace=False)]
     bgX = Zs[bg[:, 0], bg[:, 1]]
+    BS = 0.6  # 空間分塊 CV 的方塊邊長(度)，訓練集匯出沿用同一分塊，方便日後模型重用同一套 CV 切法
+    bg_block = [f"{int(lats[iy] // BS)}_{int(lons[ix] // BS)}" for iy, ix in bg]
 
     def envelope(P):
         mu = P.mean(axis=0)
@@ -163,7 +166,7 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
         u = ranks[:len(pos)].sum() - len(pos) * (len(pos) + 1) / 2
         return round(float(u / (len(pos) * len(neg))), 3)
 
-    results, report = {}, []
+    results, report, dataset_rows = {}, [], []
     for sp, cells in sorted(occ.items(), key=lambda kv: len(kv[1]), reverse=True):
         pc = np.array(sorted(cells))
         if len(pc) < MIN_PRESENCE_SDM:
@@ -182,7 +185,6 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
         cv = round(float(np.mean(aucs)), 3) if aucs else float("nan")
 
         # (2) 空間分塊交叉驗證(leave-one-block-out, 0.6°方塊)：誠實值，降低空間自相關高估
-        BS = 0.6
         blk = defaultdict(list)
         for r, (iy, ix) in enumerate(pc):
             blk[(int(lats[iy] // BS), int(lons[ix] // BS))].append(r)
@@ -206,10 +208,27 @@ def fit_hires_sdm(lats, lons, sst, chl, front):
         report.append((sp, len(pc), cv, scv))
         print(f"  SDM species#{len(results)}: presence={len(pc)} randomCV={cv} spatialCV={scv}")
 
+        # 統整訓練集(供之後訓練 sklearn 模型用，取代/對照現行高斯包絡)：
+        # 同一份 presence + shared background，欄位與空間分塊 CV 用的切法一致，可直接重用同一切分。
+        for r, (iy, ix) in enumerate(pc):
+            block = f"{int(lats[iy] // BS)}_{int(lons[ix] // BS)}"
+            dataset_rows.append((sp, 1, *P[r].tolist(), float(lats[iy]), float(lons[ix]), block))
+        for r, (iy, ix) in enumerate(bg):
+            dataset_rows.append((sp, 0, *bgX[r].tolist(), float(lats[iy]), float(lons[ix]), bg_block[r]))
+
     with open(SDM_REPORT, "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["魚種", "區內出現點", "隨機CV-AUC", "空間分塊CV-AUC"])
         w.writerows(report)
+
+    with open(TRAIN_DATASET, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["species", "label", "sst_z", "chl_log_z", "front_z", "lat", "lon", "block"])
+        w.writerows(dataset_rows)
+    print(f"  訓練集匯出：{TRAIN_DATASET.name}（{len(dataset_rows)} rows，"
+          f"{sum(1 for r in dataset_rows if r[1] == 1)} presence / "
+          f"{sum(1 for r in dataset_rows if r[1] == 0)} background）")
+
     return results, [(sp, n, cv, scv) for sp, n, cv, scv in report
                      if not isinstance(cv, str)]
 

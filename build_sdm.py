@@ -12,8 +12,10 @@
 模型：以出現點環境分布擬合多維高斯，棲地適合度 = exp(-0.5 * Mahalanobis^2)，標準化 0–100。
 輸出：sdm/sdm_grid.json（各魚種網格適合度）、sdm/sdm_report.csv（筆數與 AUC）。
 
-註：第一版為 presence-only 包絡法（BIOCLIM/ENFA 族），透明可解釋；後續可升級 RandomForest/MaxEnt，
-    並以多航次氣候平均環境場取代單一航次快照。
+註：第一版為 presence-only 包絡法（BIOCLIM/ENFA 族），透明可解釋；曾實測換成判別式模型
+    （QDA/多項式邏輯迴歸，見 train_sdm_model.py）不會更準——樣本量(20–71 筆)撐不起判別式模型的
+    leave-one-block-out 空間 CV，包絡模型對小樣本更穩健，見 CLAUDE.md「誠實準確度」。
+    可考慮以多航次氣候平均環境場取代單一航次快照。
 """
 from __future__ import annotations
 
